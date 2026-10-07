@@ -19,7 +19,6 @@ services:
   - type: web
     name: airauth-web
     runtime: static
-    plan: free
     buildCommand: npm install --prefix frontend && npm run build --prefix frontend
     staticPublishPath: frontend/dist
     envVars:
