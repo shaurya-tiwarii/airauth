@@ -13,6 +13,7 @@ function useDocs(auth) {
 }
 
 function DocTable({ docs, onSign, onDownload, onDelete, showSign }) {
+  const [confirmId, setConfirmId] = useState(null);
   if (!docs.length) return <p className="muted">No documents yet.</p>;
   return (
     <table className="tbl">
@@ -27,9 +28,16 @@ function DocTable({ docs, onSign, onDownload, onDelete, showSign }) {
               {showSign && d.status !== "signed" && (
                 <button className="link strong" onClick={() => onSign(d)}>Sign</button>
               )}
-              {onDelete && (
-                <button className="link danger" onClick={() => onDelete(d)}>Delete</button>
-              )}
+              {onDelete && (confirmId === d.id ? (
+                <span className="confirm-row">
+                  <button className="link danger strong"
+                    onClick={() => { setConfirmId(null); onDelete(d); }}>Confirm delete</button>
+                  {" "}
+                  <button className="link" onClick={() => setConfirmId(null)}>Cancel</button>
+                </span>
+              ) : (
+                <button className="link danger" onClick={() => setConfirmId(d.id)}>Delete</button>
+              ))}
             </td>
           </tr>
         ))}
@@ -135,7 +143,6 @@ function UserDash({ auth, go, refresh }) {
     setSignDoc(d); go("sign", { doc: d });
   };
   const del = async (d) => {
-    if (!confirm(`Delete "${d.filename}"? This also retires its signatures and their verification codes.`)) return;
     await Docs.remove(d.id);
     load();
   };
@@ -163,6 +170,7 @@ function EmployerDash({ auth, go, refresh }) {
   const { docs, sigs, load } = useDocs(auth);
   const [biz, setBiz] = useState(null);
   const [assignSel, setAssignSel] = useState({});
+  const [confirmDel, setConfirmDel] = useState(null);
   useEffect(() => { Biz.mine().then(setBiz).catch(() => {}); }, []);
   const remove = async (uid) => {
     if (!confirm("Remove this employee?")) return;
@@ -181,7 +189,7 @@ function EmployerDash({ auth, go, refresh }) {
     load();
   };
   const del = async (d) => {
-    if (!confirm(`Delete "${d.filename}"? This also retires its signatures and their verification codes.`)) return;
+    setConfirmDel(null);
     await Docs.remove(d.id);
     load();
   };
@@ -225,7 +233,15 @@ function EmployerDash({ auth, go, refresh }) {
                     {d.status !== "signed" && (
                       <button className="link strong" onClick={() => startSign(d)}>Sign</button>
                     )}
-                    <button className="link danger" onClick={() => del(d)}>Delete</button>
+                    {confirmDel === d.id ? (
+                      <span className="confirm-row">
+                        <button className="link danger strong" onClick={() => del(d)}>Confirm delete</button>
+                        {" "}
+                        <button className="link" onClick={() => setConfirmDel(null)}>Cancel</button>
+                      </span>
+                    ) : (
+                      <button className="link danger" onClick={() => setConfirmDel(d.id)}>Delete</button>
+                    )}
                     {d.status !== "signed" && employees.length > 0 && (
                       <span className="assign-row">
                         <select value={assignSel[d.id] || ""}
