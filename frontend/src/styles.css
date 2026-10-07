@@ -79,5 +79,6 @@
 .howto li{font-size:13px;line-height:1.55;color:#3c5064}
 .howto li b{color:#14243a}
 .draw-frame canvas{cursor:crosshair}
+.draw-hint{pointer-events:none}
 .pill-ghost{background:rgba(255,255,255,.7);border:1px solid #cfd9df;color:#14243a;border-radius:999px;padding:14px 30px;font-size:15px;font-weight:700;cursor:pointer}
 

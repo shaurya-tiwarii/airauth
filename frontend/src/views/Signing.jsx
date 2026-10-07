@@ -79,7 +79,7 @@ function DrawPad({ onStroke }) {
           onPointerCancel={() => { drawing.current = false; }}
         />
         {count === 0 && (
-          <div className="camera-empty"><b>✎</b><span>Draw your signature here with mouse or finger.</span></div>
+          <div className="camera-empty draw-hint"><b>✎</b><span>Draw your signature here with mouse or finger.</span></div>
         )}
       </div>
       <div className="camera-actions">
