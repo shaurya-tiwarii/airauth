@@ -1,5 +1,4 @@
 import { SKY_CLOUDS_SRC } from "../skyClouds";
-import { SKY_CLOUDS_SMALL_SRC } from "../skyCloudsSmall";
 
 export default function Home({ go, auth }) {
   return (
@@ -7,7 +6,6 @@ export default function Home({ go, auth }) {
       <div className="sky-backdrop" aria-hidden="true">
         <div className="sky-day" />
         <img className="sky-clouds" src={SKY_CLOUDS_SRC} alt="" />
-        <img className="sky-clouds-small" src={SKY_CLOUDS_SMALL_SRC} alt="" />
       </div>
 
       <header className="nav">
