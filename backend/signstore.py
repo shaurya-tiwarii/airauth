@@ -87,7 +87,8 @@ def init_db():
         """)
         # Migrations for databases created before these columns existed.
         for table, column, ctype in (("documents", "assignee_user_id", "INTEGER"),
-                                     ("signatures", "stamped_sha256", "TEXT")):
+                                     ("signatures", "stamped_sha256", "TEXT"),
+                                     ("signatures", "method", "TEXT DEFAULT 'air'")):
             cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
             if column not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
@@ -281,15 +282,17 @@ def signed_path(code: str) -> Path:
 
 def create_signature(code: str, document_id: int, signer_id: int,
                      business_id, doc_sha256: str, include_visible_sig: bool,
-                     stamped_sha256: str = None) -> dict:
+                     stamped_sha256: str = None, method: str = "air") -> dict:
+    if method not in ("air", "draw"):
+        method = "air"
     with get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO signatures
                (code, document_id, signer_user_id, business_id, doc_sha256,
-                stamped_sha256, include_visible_sig, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                stamped_sha256, include_visible_sig, method, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (code, document_id, signer_id, business_id, doc_sha256,
-             stamped_sha256, 1 if include_visible_sig else 0, utcnow()),
+             stamped_sha256, 1 if include_visible_sig else 0, method, utcnow()),
         )
         sid = cur.lastrowid
         conn.commit()

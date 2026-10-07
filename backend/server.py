@@ -347,6 +347,7 @@ class SignIn(BaseModel):
     points: List[Tuple[float, float]]
     kinematics: List[List[float]] = []
     include_visible_signature: bool = True
+    method: str = "air"  # "air" = biometric verification, "draw" = mouse/touch fallback
 
 @app.post("/api/v1/sign")
 def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user)):
@@ -358,20 +359,26 @@ def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user
     if doc["status"] == "signed":
         raise HTTPException(status_code=400, detail="Document is already signed.")
 
-    # One verification against the enrolled profile
-    try:
-        stored = vault.load_fused_template(_template_key(user["id"]))
-    except LookupError:
-        raise HTTPException(status_code=400,
-                            detail="No air signature enrolled. Enroll once in your profile first.")
-    try:
-        is_auth, _, _, _, margin = match_against_fused_template(
-            payload.points, payload.kinematics, stored, threshold=config.THRESHOLD)
-    except Exception as err:
-        raise HTTPException(status_code=400, detail=str(err))
-    if not is_auth:
-        raise HTTPException(status_code=401,
-                            detail=f"Signature did not match your enrolled profile (margin {margin}).")
+    method = payload.method if payload.method in ("air", "draw") else "air"
+    margin = None
+
+    if method == "air":
+        # One biometric verification against the enrolled profile
+        try:
+            stored = vault.load_fused_template(_template_key(user["id"]))
+        except LookupError:
+            raise HTTPException(status_code=400,
+                                detail="No air signature enrolled. Enroll once in your profile first, or use the Draw tab.")
+        try:
+            is_auth, _, _, _, margin = match_against_fused_template(
+                payload.points, payload.kinematics, stored, threshold=config.THRESHOLD)
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        if not is_auth:
+            raise HTTPException(status_code=401,
+                                detail=f"Signature did not match your enrolled profile (margin {margin}). Try again slower, or use the Draw tab.")
+    # method == "draw": the signer is already authenticated by login;
+    # no biometric claim is made. Document integrity guarantees still hold.
 
     original = signstore.doc_path(doc["id"]).read_bytes()
     digest = _sha256(original)
@@ -390,9 +397,9 @@ def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user
     stamped_digest = _sha256(stamped)
     signstore.create_signature(code, doc["id"], user["id"], user["business_id"],
                                digest, payload.include_visible_signature,
-                               stamped_sha256=stamped_digest)
+                               stamped_sha256=stamped_digest, method=method)
     signstore.mark_signed(doc["id"])
-    return {"status": "signed", "code": code, "margin": margin,
+    return {"status": "signed", "code": code, "margin": margin, "method": method,
             "download": f"/api/v1/sign/{code}/download"}
 
 @app.get("/api/v1/sign/{code}/download")
