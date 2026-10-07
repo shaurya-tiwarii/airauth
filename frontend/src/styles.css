@@ -5,6 +5,7 @@
 .app-shell{min-height:100vh;overflow:hidden;position:relative}.home-shell{color:#0a111a}.workspace-shell{background:#f6f7f4;color:#111}
 .sky-backdrop{position:fixed;inset:0;z-index:0;overflow:hidden}
 .sky-day{position:absolute;inset:0;background:linear-gradient(180deg,#7fb2e5,#86b8e6 50%,#a5c9e9)}
+.sky-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .sky-clouds{position:absolute;top:-4%;left:-6%;width:112%;height:108%;object-fit:cover;mix-blend-mode:screen;opacity:.95;transition:filter 1.2s ease,opacity 1.2s ease;pointer-events:none;animation:cloudDrift 150s ease-in-out infinite alternate}
 @keyframes cloudDrift{from{transform:translate3d(-1.6%,0,0)}to{transform:translate3d(1.6%,0,0)}}
 .nav{position:relative;z-index:10;height:82px;padding:0 52px;display:flex;align-items:center;justify-content:space-between}.brand{background:none;border:0;display:flex;align-items:center;gap:12px;font-weight:800;font-size:21px;color:#07121e}.brand-mark{width:34px;height:34px;border-radius:10px;background:#07121e;color:#fff;display:grid;place-items:center}.nav-links{display:flex;gap:34px;font-size:14px;color:#13202a}.nav-links a:hover{text-decoration:underline}.nav-user{background:#fff;border:1px solid #dfe4e7;border-radius:999px;padding:10px 15px;font-size:12px;font-weight:700}.green-dot,.grey-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:7px}.green-dot{background:#42a86a}.grey-dot{background:#999}

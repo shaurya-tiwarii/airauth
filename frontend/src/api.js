@@ -18,6 +18,12 @@ function headers() {
 
 async function parse(res) {
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    // Session expired or invalid: drop the stale token and tell the app to
+    // send the user back to the login screen.
+    setAuth(null);
+    window.dispatchEvent(new Event("airauth:expired"));
+  }
   if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   return data;
 }
@@ -49,6 +55,8 @@ export const Auth = {
   register: (d) => api("POST", "/auth/register", d),
   login: (d) => api("POST", "/auth/login", d),
   me: () => api("GET", "/auth/me"),
+  changePassword: (current_password, new_password) =>
+    api("POST", "/auth/change-password", { current_password, new_password }),
 };
 
 export const Docs = {
@@ -56,6 +64,7 @@ export const Docs = {
   upload: (file) => { const f = new FormData(); f.append("file", file); return apiForm("/docs/upload", f); },
   download: (id, name) => download(`/docs/${id}/download`, name),
   assign: (id, user_id) => api("POST", `/docs/${id}/assign`, { user_id }),
+  remove: (id) => api("DELETE", `/docs/${id}`),
 };
 
 export const Sign = {
@@ -73,6 +82,7 @@ export const Admin = {
   overview: () => api("GET", "/admin/overview"),
   businesses: () => api("GET", "/admin/businesses"),
   users: () => api("GET", "/admin/users"),
+  audit: (limit = 200) => api("GET", `/admin/audit?limit=${limit}`),
 };
 
 export const Verify = {

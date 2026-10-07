@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Home from "./views/Home";
 import AuthView from "./views/Auth";
 import VerifyPortal from "./views/Verify";
@@ -11,6 +11,14 @@ export default function App() {
   const [route, setRoute] = useState({ name: "home" });
   const [auth, setAuthState] = useState(getAuth());
 
+  // Any API call that comes back 401 (expired or invalid session) signs the
+  // user out and sends them to the login screen, instead of failing silently.
+  useEffect(() => {
+    const onExpired = () => { setAuthState(null); setRoute({ name: "login" }); };
+    window.addEventListener("airauth:expired", onExpired);
+    return () => window.removeEventListener("airauth:expired", onExpired);
+  }, []);
+
   const go = (name, params = {}) => {
     window.scrollTo(0, 0);
     setRoute({ name, ...params });
@@ -18,8 +26,9 @@ export default function App() {
 
   const onAuth = (data) => {
     setAuthState(data);
-    const needsEnroll = data.user.role !== "platform_admin" && !data.user.airsig_enrolled;
-    go(needsEnroll ? "enroll" : "dashboard");
+    // Enrollment is optional now: the Draw tab signs without a camera.
+    // Users can enroll their air signature any time from the dashboard.
+    go("dashboard");
   };
 
   // Re-fetch the profile after enrollment so the enrolled flag is real,
@@ -76,7 +85,7 @@ export default function App() {
     return (
       <div className="app-shell workspace-shell">
         <SimpleNav go={go} auth={auth} />
-        <Signing doc={route.doc} go={go} refresh={refreshAuth} />
+        <Signing doc={route.doc} go={go} refresh={refreshAuth} auth={auth} />
       </div>
     );
   }
