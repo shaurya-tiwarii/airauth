@@ -1,25 +1,13 @@
-import { useEffect, useState } from "react";
 import { SKY_CLOUDS_SRC } from "../skyClouds";
 import { SKY_CLOUDS_SMALL_SRC } from "../skyCloudsSmall";
 
 export default function Home({ go, auth }) {
-  const [night, setNight] = useState(() => {
-    const stored = localStorage.getItem("airauth_night");
-    if (stored !== null) return stored === "1";
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
-  });
-  useEffect(() => {
-    localStorage.setItem("airauth_night", night ? "1" : "0");
-  }, [night]);
-
   return (
-    <div className={`app-shell home-shell ${night ? "night" : ""}`}>
+    <div className="app-shell home-shell">
       <div className="sky-backdrop" aria-hidden="true">
         <div className="sky-day" />
-        <div className="sky-night" />
         <img className="sky-clouds" src={SKY_CLOUDS_SRC} alt="" />
         <img className="sky-clouds-small" src={SKY_CLOUDS_SMALL_SRC} alt="" />
-        <div className="stars" />
       </div>
 
       <header className="nav">
@@ -33,10 +21,6 @@ export default function Home({ go, auth }) {
           <button className="linklike" onClick={() => go("verify")}>Verify a document</button>
         </nav>
         <div className="nav-right">
-          <button className="night-toggle" onClick={() => setNight(!night)}
-            title={night ? "Switch to day" : "Switch to night"}>
-            {night ? "☀" : "☾"}
-          </button>
           {auth
             ? <button className="nav-user" onClick={() => go("dashboard")}><span className="green-dot" /> {auth.user.name}</button>
             : <button className="nav-user" onClick={() => go("login")}>Sign in</button>}
