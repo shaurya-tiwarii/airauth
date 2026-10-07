@@ -92,6 +92,15 @@ def init_db():
             cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
             if column not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_user_id INTEGER,
+                action TEXT NOT NULL,
+                detail TEXT DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+        """)
         conn.commit()
 
 
@@ -141,6 +150,12 @@ def get_user(uid: int) -> dict:
 def set_enrolled(uid: int):
     with get_conn() as conn:
         conn.execute("UPDATE users SET airsig_enrolled = 1 WHERE id = ?", (uid,))
+        conn.commit()
+
+
+def set_password(uid: int, pw_hash: str):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET pw_hash = ? WHERE id = ?", (pw_hash, uid))
         conn.commit()
 
 
@@ -276,6 +291,49 @@ def doc_path(did: int) -> Path:
 
 def signed_path(code: str) -> Path:
     return SIGNED_DIR / f"{code}.pdf"
+
+
+def delete_document(did: int) -> dict:
+    """Delete a document, its original PDF, and any signatures (and stamped
+    PDFs) made on it. Returns the list of verification codes that were
+    retired with it."""
+    with get_conn() as conn:
+        codes = [r["code"] for r in conn.execute(
+            "SELECT code FROM signatures WHERE document_id = ?", (did,))]
+        conn.execute("DELETE FROM signatures WHERE document_id = ?", (did,))
+        conn.execute("DELETE FROM documents WHERE id = ?", (did,))
+        conn.commit()
+    try:
+        doc_path(did).unlink(missing_ok=True)
+    except OSError:
+        pass
+    for code in codes:
+        try:
+            signed_path(code).unlink(missing_ok=True)
+        except OSError:
+            pass
+    return {"deleted_document_id": did, "retired_codes": codes}
+
+
+# ---- audit ----------------------------------------------------------
+
+def log_audit(actor_user_id, action: str, detail: str = ""):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (actor_user_id, action, detail, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (actor_user_id, action, detail or "", utcnow()),
+        )
+        conn.commit()
+
+
+def list_audit(limit: int = 200) -> list:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT a.*, u.email AS actor_email, u.name AS actor_name"
+            " FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id"
+            " ORDER BY a.id DESC LIMIT ?", (limit,)).fetchall()
+        return [row_to_dict(r) for r in rows]
 
 
 # ---- signatures ----------------------------------------------------------

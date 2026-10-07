@@ -106,13 +106,9 @@ class FusedEnrollRequest(BaseModel):
     user_id: str
     passes: List[SignaturePass]
 
-class VerifyRequest(BaseModel):
-    user_id: str
-    points: List[Tuple[float, float]]
-    kinematics: List[List[float]] = []
-
-@app.post("/api/v1/airsig/enroll-fused")
-def enroll_fused_signature(payload: FusedEnrollRequest):
+def _enroll_fused_template(payload: FusedEnrollRequest):
+    """Internal only: fuse and encrypt an enrollment template. Never exposed
+    as a route, so only the authenticated /auth/enroll wrapper can reach it."""
     if len(payload.passes) != config.ENROLL_PASSES:
         raise HTTPException(
             status_code=400,
@@ -126,32 +122,6 @@ def enroll_fused_signature(payload: FusedEnrollRequest):
             "message": f"Enrolled and encrypted {config.ENROLL_PASSES}-pass "
                        f"master template for '{payload.user_id}'.",
             "template_shape": result["template_shape"],
-        }
-    except Exception as err:
-        raise HTTPException(status_code=400, detail=str(err))
-
-@app.post("/api/v1/airsig/verify")
-def verify_signature(payload: VerifyRequest):
-    try:
-        stored = vault.load_fused_template(payload.user_id)
-    except LookupError as err:
-        raise HTTPException(status_code=404, detail=str(err))
-    except Exception as err:
-        raise HTTPException(status_code=500, detail=f"Decryption failure: {str(err)}")
-    try:
-        is_auth, total_cost, shape_cost, behav_cost, margin = match_against_fused_template(
-            cand_points=payload.points,
-            cand_kinematics=payload.kinematics,
-            stored=stored,
-            threshold=config.THRESHOLD,
-        )
-        return {
-            "authenticated": is_auth,
-            "fused_distance": total_cost,
-            "shape_distance": shape_cost,
-            "behavioral_distance": behav_cost,
-            "threshold": config.THRESHOLD,
-            "margin": margin,
         }
     except Exception as err:
         raise HTTPException(status_code=400, detail=str(err))
@@ -199,6 +169,7 @@ def register(payload: RegisterIn, request: Request):
     if role == "employer_admin":
         business = signstore.create_business(payload.business_name, user["id"])
         user = signstore.get_user(user["id"])
+    _audit(user["id"], "auth.register", f"role={role}")
     return {"user": authmod.public_user(user),
             "business": business,
             "token": authmod.make_token(user["id"], user["role"])}
@@ -209,8 +180,27 @@ def login(payload: LoginIn, request: Request):
     user = signstore.get_user_by_email(payload.email)
     if not user or not authmod.check_password(payload.password, user["pw_hash"]):
         raise HTTPException(status_code=401, detail="Wrong email or password.")
+    _audit(user["id"], "auth.login", "")
     return {"user": authmod.public_user(user),
             "token": authmod.make_token(user["id"], user["role"])}
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.post("/api/v1/auth/change-password")
+def change_password(payload: ChangePasswordIn,
+                    user: dict = Depends(authmod.get_current_user)):
+    """Change the logged-in user's password. Requires the current password."""
+    if not authmod.check_password(payload.current_password, user["pw_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is wrong.")
+    try:
+        new_hash = authmod.hash_password(payload.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    signstore.set_password(user["id"], new_hash)
+    _audit(user["id"], "auth.change_password", "")
+    return {"status": "changed"}
 
 @app.get("/api/v1/auth/me")
 def me(user: dict = Depends(authmod.get_current_user)):
@@ -224,7 +214,7 @@ def me(user: dict = Depends(authmod.get_current_user)):
 def enroll_me(payload: FusedEnrollRequest, user: dict = Depends(authmod.get_current_user)):
     """Enroll the logged-in user's air signature (one profile, done once)."""
     payload.user_id = _template_key(user["id"])
-    result = enroll_fused_signature(payload)
+    result = _enroll_fused_template(payload)
     signstore.set_enrolled(user["id"])
     return result
 
@@ -246,6 +236,8 @@ def remove_employee(payload: RemoveEmployeeIn,
                     user: dict = Depends(authmod.require_roles("employer_admin"))):
     if not signstore.remove_employee(payload.user_id, user["business_id"]):
         raise HTTPException(status_code=404, detail="Employee not found in your business.")
+    _audit(user["id"], "business.remove_employee",
+           f"user_id={payload.user_id}")
     return {"status": "removed"}
 
 
@@ -268,6 +260,12 @@ def admin_businesses(user: dict = Depends(authmod.require_roles("platform_admin"
 def admin_users(user: dict = Depends(authmod.require_roles("platform_admin"))):
     return signstore.list_users()
 
+@app.get("/api/v1/admin/audit")
+def admin_audit(user: dict = Depends(authmod.require_roles("platform_admin")),
+                limit: int = 200):
+    """Platform admin audit trail: who did what, newest first."""
+    return signstore.list_audit(min(max(limit, 1), 500))
+
 
 # ---------------------------------------------------------------- documents
 
@@ -288,6 +286,8 @@ async def upload_doc(file: UploadFile = File(...),
     doc = signstore.create_document(user["id"], user["business_id"],
                                     file.filename or "document.pdf", digest)
     signstore.doc_path(doc["id"]).write_bytes(data)
+    _audit(user["id"], "document.upload",
+           f"doc_id={doc['id']} filename={doc['filename']}")
     return {"id": doc["id"], "filename": doc["filename"], "sha256": digest,
             "status": doc["status"]}
 
@@ -323,6 +323,36 @@ def _can_access_doc(user: dict, doc: dict) -> bool:
     return False
 
 
+@app.delete("/api/v1/docs/{doc_id}")
+def delete_doc(doc_id: int, user: dict = Depends(authmod.get_current_user)):
+    doc = signstore.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not _can_access_doc(user, doc):
+        raise HTTPException(status_code=403, detail="Not your document.")
+    # Deleting is destructive: only the owner, the owning business's admin,
+    # or the platform admin may do it. Assigned employees may sign, not delete.
+    allowed = (
+        doc["owner_user_id"] == user["id"]
+        or user["role"] == "platform_admin"
+        or (user["role"] == "employer_admin" and user["business_id"]
+            and doc["business_id"] == user["business_id"])
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Only the document owner can delete it.")
+    result = signstore.delete_document(doc_id)
+    _audit(user["id"], "document.delete",
+           f"doc_id={doc_id} filename={doc['filename']}")
+    return {"status": "deleted", **result}
+
+
+def _audit(actor_id, action: str, detail: str = ""):
+    try:
+        signstore.log_audit(actor_id, action, detail)
+    except Exception:
+        pass  # audit must never break the request it records
+
+
 class AssignIn(BaseModel):
     user_id: int
 
@@ -337,6 +367,8 @@ def assign_doc(doc_id: int, payload: AssignIn,
     if not signstore.assign_document(doc_id, payload.user_id, user["business_id"]):
         raise HTTPException(status_code=400,
                             detail="Assignee must be an employee of your business.")
+    _audit(user["id"], "document.assign",
+           f"doc_id={doc_id} assignee={payload.user_id}")
     return {"status": "assigned", "doc_id": doc_id, "assignee_user_id": payload.user_id}
 
 
@@ -399,6 +431,8 @@ def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user
                                digest, payload.include_visible_signature,
                                stamped_sha256=stamped_digest, method=method)
     signstore.mark_signed(doc["id"])
+    _audit(user["id"], "document.sign",
+           f"doc_id={doc['id']} code={code} method={method}")
     return {"status": "signed", "code": code, "margin": margin, "method": method,
             "download": f"/api/v1/sign/{code}/download"}
 
@@ -440,6 +474,7 @@ def verify_code(code: str):
         "signed_at": sig["created_at"],
         "doc_sha256": sig["doc_sha256"],
         "stamped_sha256": sig["stamped_sha256"],
+        "method": sig.get("method") or "air",
     }
 
 @app.post("/api/v1/verify/{code}/check")

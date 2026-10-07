@@ -47,14 +47,17 @@ def _overlay_page(page_w: float, page_h: float, code: str, signed_at: str,
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(page_w, page_h))
 
-    # Diagonal watermark on every page
+    # Diagonal watermark on every page (two passes, clearly visible
+    # without obscuring the document content underneath)
     c.saveState()
     c.setFillColor(LIGHT_GRAY)
     c.setFont("Helvetica-Bold", 64)
     c.translate(page_w / 2, page_h / 2)
     c.rotate(35)
-    c.setFillAlpha(0.10)
+    c.setFillAlpha(0.16)
     c.drawCentredString(0, 0, "VERIFIED BY AIRAUTH")
+    c.setFillAlpha(0.12)
+    c.drawCentredString(0, -140, "VERIFIED BY AIRAUTH")
     c.restoreState()
 
     # Footer seal on every page
@@ -66,6 +69,9 @@ def _overlay_page(page_w: float, page_h: float, code: str, signed_at: str,
     # Signature block on the last page
     if last_page:
         y = 120
+        c.setStrokeColor(SEAL_BLUE)
+        c.setLineWidth(1.2)
+        c.line(48, y + 84, 320, y + 84)
         c.setFillColor(SEAL_BLUE)
         c.setFont("Helvetica-Bold", 13)
         c.drawString(48, y + 64, "Signed with AirAuth")
