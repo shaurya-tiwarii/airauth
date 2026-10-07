@@ -54,6 +54,9 @@ export default function VerifyPortal() {
               <tbody>
                 <tr><td>Code</td><td><b>{result.code}</b></td></tr>
                 <tr><td>Signed by</td><td>{result.signer_name}</td></tr>
+                <tr><td>How it was signed</td><td>{result.method === "draw"
+                  ? "Drawn signature, authenticated through the signer's AirAuth account"
+                  : "Air signature, verified against the signer's enrolled profile"}</td></tr>
                 {result.business_name && <tr><td>Business</td><td>{result.business_name}</td></tr>}
                 <tr><td>Document</td><td>{result.filename}</td></tr>
                 <tr><td>Signed at</td><td>{new Date(result.signed_at).toLocaleString()}</td></tr>

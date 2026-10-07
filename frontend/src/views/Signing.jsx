@@ -89,13 +89,14 @@ function DrawPad({ onStroke }) {
   );
 }
 
-export default function Signing({ doc, go, refresh }) {
+export default function Signing({ doc, go, refresh, auth }) {
   const [mode, setMode] = useState("air");
   const [includeVisible, setIncludeVisible] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [stroke, setStroke] = useState(null);
   const [done, setDone] = useState(null);
+  const enrolled = !!auth?.user?.airsig_enrolled;
 
   const draw = useAirDraw((s) => setStroke(s));
 
@@ -163,6 +164,19 @@ export default function Signing({ doc, go, refresh }) {
             <span>{mode === "air" ? draw.status : "Use mouse or finger"}</span>
           </div>
           {mode === "air" ? (
+            !enrolled ? (
+              <div className="camera-frame">
+                <div className="camera-empty">
+                  <b>◉</b>
+                  <span>Air signing needs a signature profile.</span>
+                  <button className="dark-auth-button" onClick={() => go("enroll")}
+                    style={{ marginTop: 12 }}>Enroll my air signature</button>
+                  <span className="muted small" style={{ marginTop: 8 }}>
+                    No camera? Use the Draw tab instead, it works right now.
+                  </span>
+                </div>
+              </div>
+            ) : (
             <>
               <div className="camera-frame">
                 <video ref={draw.videoRef} muted playsInline />
@@ -182,6 +196,7 @@ export default function Signing({ doc, go, refresh }) {
                 <div className="stroke-meter"><span style={{ width: `${Math.min(100, draw.livePoints / 1.2)}%` }} /></div>
               )}
             </>
+            )
           ) : (
             <>
               <DrawPad onStroke={setStroke} />

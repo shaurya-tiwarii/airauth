@@ -12,7 +12,7 @@ function useDocs(auth) {
   return { docs, sigs, load };
 }
 
-function DocTable({ docs, onSign, onDownload, showSign }) {
+function DocTable({ docs, onSign, onDownload, onDelete, showSign }) {
   if (!docs.length) return <p className="muted">No documents yet.</p>;
   return (
     <table className="tbl">
@@ -23,9 +23,12 @@ function DocTable({ docs, onSign, onDownload, showSign }) {
             <td>{d.filename}<br /><small className="mono">{d.sha256.slice(0, 16)}...</small></td>
             <td><span className={`pill ${d.status}`}>{d.status}</span></td>
             <td className="actions">
-              <button className="link" onClick={() => onDownload(d)}>Open</button>
+              <button className="link" onClick={() => onDownload(d)}>Original</button>
               {showSign && d.status !== "signed" && (
                 <button className="link strong" onClick={() => onSign(d)}>Sign</button>
+              )}
+              {onDelete && (
+                <button className="link danger" onClick={() => onDelete(d)}>Delete</button>
               )}
             </td>
           </tr>
@@ -47,7 +50,7 @@ function SigTable({ sigs }) {
             <td>{s.filename}</td>
             <td>{s.signer_name}{s.business_name ? <><br /><small>{s.business_name}</small></> : null}</td>
             <td><small>{new Date(s.created_at).toLocaleString()}</small></td>
-            <td><button className="link" onClick={() => Sign.download(s.code)}>PDF</button></td>
+            <td><button className="link" onClick={() => Sign.download(s.code)}>Signed PDF</button></td>
           </tr>
         ))}
       </tbody>
@@ -80,6 +83,34 @@ function Upload({ onDone }) {
   );
 }
 
+function ChangePassword() {
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr(""); setMsg("");
+    try {
+      await Auth.changePassword(cur, next);
+      setMsg("Password changed.");
+      setCur(""); setNext("");
+    } catch (e2) { setErr(e2.message); }
+  };
+  return (
+    <form onSubmit={submit} className="pw-form">
+      <h4>Change password</h4>
+      <input type="password" placeholder="Current password" autoComplete="current-password"
+        value={cur} onChange={(e) => setCur(e.target.value)} required />
+      <input type="password" placeholder="New password (8+ characters)" autoComplete="new-password"
+        value={next} onChange={(e) => setNext(e.target.value)} required minLength={8} />
+      <button className="dark-auth-button" type="submit">Change password</button>
+      {msg && <p className="ok-line">{msg}</p>}
+      {err && <div className="error-card">{err}</div>}
+    </form>
+  );
+}
+
 function ProfileCard({ auth, go, refresh }) {
   return (
     <section className="dash-card">
@@ -87,9 +118,10 @@ function ProfileCard({ auth, go, refresh }) {
       <h3>{auth.user.name}</h3>
       <p className="muted">{auth.user.email} · {auth.user.role.replace("_", " ")}</p>
       {auth.user.airsig_enrolled
-        ? <p className="ok-line">Signature profile enrolled. One verification signs any document.</p>
-        : <><p className="muted">No signature enrolled yet. You need one profile before signing.</p>
-            <button className="dark-auth-button" onClick={() => go("enroll")}>Enroll my signature</button></>}
+        ? <p className="ok-line">Signature profile enrolled. One air verification signs any document.</p>
+        : <><p className="muted">No air signature enrolled yet. You can still sign with the Draw tab; enroll here to unlock air signing.</p>
+            <button className="dark-auth-button" onClick={() => go("enroll")}>Enroll my air signature</button></>}
+      <ChangePassword />
     </section>
   );
 }
@@ -100,15 +132,19 @@ function UserDash({ auth, go, refresh }) {
   const { docs, sigs, load } = useDocs(auth);
   const [signDoc, setSignDoc] = useState(null);
   const startSign = (d) => {
-    if (!auth.user.airsig_enrolled) { go("enroll"); return; }
     setSignDoc(d); go("sign", { doc: d });
+  };
+  const del = async (d) => {
+    if (!confirm(`Delete "${d.filename}"? This also retires its signatures and their verification codes.`)) return;
+    await Docs.remove(d.id);
+    load();
   };
   return (
     <>
       <ProfileCard auth={auth} go={go} refresh={refresh} />
       <section className="dash-card">
         <div className="dash-head"><h3>My documents</h3><Upload onDone={load} /></div>
-        <DocTable docs={docs} showSign onSign={startSign}
+        <DocTable docs={docs} showSign onSign={startSign} onDelete={del}
           onDownload={(d) => Docs.download(d.id, d.filename)} />
       </section>
       <section className="dash-card">
@@ -134,7 +170,6 @@ function EmployerDash({ auth, go, refresh }) {
     setBiz(await Biz.mine());
   };
   const startSign = (d) => {
-    if (!auth.user.airsig_enrolled) { go("enroll"); return; }
     go("sign", { doc: d });
   };
   const employees = (biz?.employees || []).filter((e) => e.role === "employee");
@@ -143,6 +178,11 @@ function EmployerDash({ auth, go, refresh }) {
     if (!uid) return;
     await Docs.assign(docId, uid);
     setAssignSel((s) => ({ ...s, [docId]: "" }));
+    load();
+  };
+  const del = async (d) => {
+    if (!confirm(`Delete "${d.filename}"? This also retires its signatures and their verification codes.`)) return;
+    await Docs.remove(d.id);
     load();
   };
   return (
@@ -181,10 +221,11 @@ function EmployerDash({ auth, go, refresh }) {
                       : <span className="muted small">Unassigned</span>}
                   </td>
                   <td className="actions">
-                    <button className="link" onClick={() => Docs.download(d.id, d.filename)}>Open</button>
+                    <button className="link" onClick={() => Docs.download(d.id, d.filename)}>Original</button>
                     {d.status !== "signed" && (
                       <button className="link strong" onClick={() => startSign(d)}>Sign</button>
                     )}
+                    <button className="link danger" onClick={() => del(d)}>Delete</button>
                     {d.status !== "signed" && employees.length > 0 && (
                       <span className="assign-row">
                         <select value={assignSel[d.id] || ""}
@@ -217,12 +258,14 @@ function PlatformDash({ auth, go, refresh }) {
   const [bizs, setBizs] = useState([]);
   const [users, setUsers] = useState([]);
   const [sigs, setSigs] = useState([]);
+  const [audit, setAudit] = useState([]);
   useEffect(() => {
     (async () => {
       setOv(await Admin.overview());
       setBizs(await Admin.businesses());
       setUsers(await Admin.users());
       setSigs(await Sign.mine());
+      setAudit(await Admin.audit());
     })().catch(() => {});
   }, []);
   return (
@@ -254,6 +297,23 @@ function PlatformDash({ auth, go, refresh }) {
         </tbody></table>
       </section>
       <section className="dash-card"><h3>All signatures</h3><SigTable sigs={sigs} /></section>
+      <section className="dash-card"><h3>Audit log</h3>
+        {audit.length ? (
+          <table className="tbl">
+            <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th></tr></thead>
+            <tbody>
+              {audit.map((a) => (
+                <tr key={a.id}>
+                  <td><small>{new Date(a.created_at).toLocaleString()}</small></td>
+                  <td><small>{a.actor_name || a.actor_email || (a.actor_user_id ? `#${a.actor_user_id}` : "system")}</small></td>
+                  <td><small className="mono">{a.action}</small></td>
+                  <td><small className="mono">{a.detail}</small></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p className="muted">No audit events yet.</p>}
+      </section>
     </>
   );
 }
