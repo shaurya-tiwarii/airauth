@@ -24,15 +24,23 @@ KEY_FILE = str(Path(__file__).resolve().parent / ".airauth_key")
 def _load_master_key() -> bytes:
     """Master key for the template vault. Never hardcoded.
 
-    Priority: AIRAUTH_MASTER_KEY env var (hex) -> .airauth_key file
+    Priority: AIRAUTH_MASTER_KEY env var -> .airauth_key file
     (created once with 0600 perms) -> generate and persist a fresh key.
+
+    The env var accepts either a hex-encoded 32-byte key (classic form)
+    or any opaque string (e.g. a platform-generated secret); the latter
+    is stretched to 32 bytes with SHA-256 so generated secrets from
+    hosts like Render work without manual hex conversion.
     """
-    key_hex = os.environ.get("AIRAUTH_MASTER_KEY")
-    if key_hex:
+    import hashlib
+
+    key_env = os.environ.get("AIRAUTH_MASTER_KEY")
+    if key_env:
+        raw = key_env.strip()
         try:
-            key = bytes.fromhex(key_hex.strip())
+            key = bytes.fromhex(raw)
         except ValueError:
-            raise RuntimeError("AIRAUTH_MASTER_KEY must be hex-encoded.")
+            key = hashlib.sha256(raw.encode("utf-8")).digest()
         if len(key) != 32:
             raise RuntimeError("AIRAUTH_MASTER_KEY must decode to 32 bytes (AES-256).")
         return key
