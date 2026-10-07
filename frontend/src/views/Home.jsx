@@ -15,7 +15,7 @@ export default function Home({ go, auth }) {
       <div className="sky-backdrop" aria-hidden="true">
         <div className="sky-day" />
         <div className="sky-night" />
-        <img className="sky-clouds" src="/sky-clouds.png" alt="" />
+        <img className="sky-clouds" src="/sky-clouds.jpg" alt="" />
         <div className="stars" />
       </div>
 
