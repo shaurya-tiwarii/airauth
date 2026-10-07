@@ -13,3 +13,83 @@
 
 @media(max-width:900px){.nav{padding:0 22px}.nav-links{display:none}.hero-centered{min-height:calc(100vh - 68px)}.home-section{grid-template-columns:1fr;gap:12px}.about{grid-template-columns:1fr}.workspace-top{grid-template-columns:1fr}.workspace-user{justify-self:start}.workspace-grid{grid-template-columns:1fr}.sky-center-cover{left:5%;right:5%;top:28%;height:28%}}
 @media(max-width:600px){.nav{height:68px;padding:0 15px}.brand{font-size:18px}.brand-mark{width:31px;height:31px}.nav-user{font-size:10px;padding:8px 10px}.hero-centered{padding:25px 18px 80px}.hero-centered h1{font-size:51px}.hero-centered p{font-size:15px}.bottom-hint{right:18px;bottom:18px}.home-section,.story,.about{padding-left:18px;padding-right:18px}.story h2{font-size:44px}.workspace{padding:35px 14px 70px}.workspace-top h2{font-size:43px}.camera-actions{flex-direction:column}.camera-actions .dark-auth-button,.camera-actions .light-auth-button{width:100%}.result-actions{flex-direction:column;width:min(100%,340px)}.result-actions .dark-auth-button,.result-actions .light-auth-button{width:100%}.footer{padding-left:18px;padding-right:18px;flex-direction:column;gap:7px}.sky-center-cover{filter:blur(14px)}}
+
+/* ---------- service: auth / dashboards / verify ---------- */
+.nav.solid{background:#f4f7f9;border-bottom:1px solid #e2e8ec}
+.nav-right{display:flex;align-items:center;gap:10px}
+.linklike{background:none;border:none;color:inherit;font:inherit;cursor:pointer;opacity:.75}
+.linklike:hover{opacity:1}
+.night-toggle{background:rgba(255,255,255,.75);border:1px solid #d8e0e5;border-radius:50%;width:38px;height:38px;font-size:17px;cursor:pointer}
+.auth-page{min-height:80vh;display:grid;place-items:center;padding:40px 18px}
+.auth-card{background:#fff;border:1px solid #e2e8ec;border-radius:20px;padding:34px;width:min(100%,440px);box-shadow:0 12px 40px rgba(18,39,56,.08)}
+.auth-card.wide{width:min(100%,640px)}
+.auth-card h2{margin:6px 0 8px}
+.auth-card label{display:block;margin:12px 0;font-size:13px;font-weight:600}
+.auth-card input,.auth-card select{width:100%;margin-top:6px;padding:11px 13px;border:1px solid #d8e0e5;border-radius:10px;font-size:14px;background:#fbfcfd}
+.auth-card .full{width:100%;margin-top:16px}
+.muted{color:#5a6b7c;font-size:13px}
+.muted.small{font-size:12px}
+.muted.center{text-align:center}
+.link{background:none;border:none;color:#1a3a5c;font-weight:700;cursor:pointer;font-size:13px}
+.link.danger{color:#a33327}
+.link.strong{color:#0f6a3d}
+.row-form{display:flex;gap:10px;margin-top:14px}
+.row-form .code-input{flex:1;padding:11px 13px;border:1px solid #d8e0e5;border-radius:10px;font-size:15px;letter-spacing:1px;text-transform:uppercase}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.kv{width:100%;border-collapse:collapse;margin-top:14px}
+.kv td{padding:9px 4px;border-top:1px solid #eef1f3;font-size:14px}
+.kv td:first-child{color:#5a6b7c;width:38%}
+.verify-result{margin-top:18px}
+.verify-ok{background:#e8f5ec;color:#0f6a3d;border:1px solid #bfe3cb;border-radius:12px;padding:12px 16px;font-weight:700;margin-top:12px}
+.verify-bad{background:#fdeceb;color:#a33327;border:1px solid #f3c1ba;border-radius:12px;padding:12px 16px;font-weight:700;margin-top:12px}
+.integrity{margin-top:18px;border-top:1px solid #eef1f3;padding-top:14px}
+.dash{max-width:1080px;margin:0 auto;padding:34px 22px 70px}
+.dash-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.dash-card{background:#fff;border:1px solid #e2e8ec;border-radius:18px;padding:24px;margin-bottom:18px}
+.dash-card h3{margin:4px 0 12px}
+.dash-card h4{margin:16px 0 8px}
+.dash-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.tbl{width:100%;border-collapse:collapse}
+.tbl td,.tbl th{padding:10px 6px;border-top:1px solid #eef1f3;font-size:13.5px;text-align:left}
+.tbl th{color:#5a6b7c;font-weight:600;border-top:none}
+.tbl .actions{white-space:nowrap;text-align:right}
+.tbl .actions .link{margin-left:10px}
+.pill{display:inline-block;padding:3px 11px;border-radius:20px;font-size:12px;font-weight:700}
+.pill.pending{background:#fdf3e3;color:#9a6a1a}
+.pill.signed{background:#e8f5ec;color:#0f6a3d}
+.stat-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}
+.stat{background:#f4f7f9;border:1px solid #e6ebef;border-radius:14px;padding:14px 20px;min-width:110px}
+.stat b{display:block;font-size:24px}
+.stat span{font-size:12px;color:#5a6b7c}
+.upload-btn{display:inline-block;background:#14243a;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer}
+.check{display:flex;gap:10px;align-items:flex-start;background:#f4f7f9;border:1px solid #e6ebef;border-radius:12px;padding:13px 15px;margin:14px 0;font-size:13.5px;cursor:pointer}
+.check input{margin-top:3px}
+.check small{color:#5a6b7c}
+.ok-line{color:#0f6a3d;font-weight:600;font-size:13.5px}
+.stroke-meter{height:6px;background:#eef1f3;border-radius:4px;margin:10px 18px 0;overflow:hidden}
+.stroke-meter span{display:block;height:100%;background:#1a3a5c;border-radius:4px;transition:width .2s}
+.hero-cta-row{display:flex;gap:12px;justify-content:center;margin-top:26px}
+.pill-ghost{background:rgba(255,255,255,.7);border:1px solid #cfd9df;color:#14243a;border-radius:999px;padding:14px 30px;font-size:15px;font-weight:700;cursor:pointer}
+
+/* ---------- night mode ---------- */
+.night-toggle{transition:transform .3s}
+.sky-backdrop video{transition:filter 1.2s ease}
+.night .sky-backdrop video{filter:brightness(.3) saturate(.7) hue-rotate(-15deg)}
+.night-veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,15,40,.55),rgba(8,15,40,.25) 45%,rgba(8,15,40,.6));pointer-events:none}
+.stars{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 1.5s ease;background-image:
+  radial-gradient(1.5px 1.5px at 12% 22%,#fff,transparent),
+  radial-gradient(1px 1px at 28% 65%,#fff,transparent),
+  radial-gradient(2px 2px at 44% 18%,#fff,transparent),
+  radial-gradient(1px 1px at 61% 42%,#fff,transparent),
+  radial-gradient(1.5px 1.5px at 73% 12%,#fff,transparent),
+  radial-gradient(1px 1px at 85% 58%,#fff,transparent),
+  radial-gradient(2px 2px at 92% 30%,#fff,transparent),
+  radial-gradient(1px 1px at 8% 78%,#fff,transparent),
+  radial-gradient(1.5px 1.5px at 36% 84%,#fff,transparent),
+  radial-gradient(1px 1px at 55% 74%,#fff,transparent),
+  radial-gradient(1.5px 1.5px at 68% 88%,#fff,transparent),
+  radial-gradient(1px 1px at 95% 80%,#fff,transparent)}
+.night .stars{opacity:.9}
+.night .hero-centered h1,.night .hero-centered p{color:#f2f6fa;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+.night .hero-eyebrow{color:#cfe0ee}
+.night .bottom-hint{color:#cfe0ee}

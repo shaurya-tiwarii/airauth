@@ -1,9 +1,13 @@
+import hashlib
+import os
 import sys
 from pathlib import Path
 from typing import List, Tuple
-from fastapi import FastAPI, HTTPException
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, EmailStr
 
 current_dir = Path(__file__).resolve().parent
 if str(current_dir) not in sys.path:
@@ -11,15 +15,15 @@ if str(current_dir) not in sys.path:
 
 try:
     from security import SecureBiometricVault, match_against_fused_template
+    import config
+    import auth as authmod
+    import signstore
+    import pdfsign
 except ImportError:
     from backend.security import SecureBiometricVault, match_against_fused_template
+    from backend import config, auth as authmod, signstore, pdfsign
 
-try:
-    import config
-except ImportError:
-    from backend import config
-
-app = FastAPI(title="AirAuth Air-Signature Backend")
+app = FastAPI(title="AirAuth")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,10 +34,32 @@ app.add_middleware(
 )
 
 vault = SecureBiometricVault()
+signstore.init_db()
+
+
+def _template_key(uid: int) -> str:
+    return f"user:{uid}"
+
+
+@app.on_event("startup")
+def seed_platform_admin():
+    email = os.environ.get("AIRAUTH_ADMIN_EMAIL", "admin@airauth.local")
+    password = os.environ.get("AIRAUTH_ADMIN_PASSWORD", "change-me-now")
+    if not signstore.get_user_by_email(email):
+        try:
+            signstore.create_user(email, authmod.hash_password(password),
+                                  "Platform Admin", "platform_admin")
+            print(f"[airauth] platform admin seeded: {email}"
+                  + (" (DEFAULT PASSWORD - change it)" if password == "change-me-now" else ""))
+        except Exception as e:
+            print(f"[airauth] admin seed failed: {e}")
+
+
+# ---------------------------------------------------------------- airsig (original)
 
 @app.get("/")
 def root():
-    return {"service": "AirAuth Air-Signature Backend", "status": "ok", "docs": "/docs"}
+    return {"service": "AirAuth", "status": "ok", "docs": "/docs"}
 
 @app.get("/health")
 def health():
@@ -60,7 +86,6 @@ def enroll_fused_signature(payload: FusedEnrollRequest):
             status_code=400,
             detail=f"Exactly {config.ENROLL_PASSES} enrollment passes required for DBA template fusion."
         )
-
     try:
         raw_passes = [{"points": p.points, "kinematics": p.kinematics} for p in payload.passes]
         result = vault.save_fused_template(payload.user_id, raw_passes)
@@ -81,7 +106,6 @@ def verify_signature(payload: VerifyRequest):
         raise HTTPException(status_code=404, detail=str(err))
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Decryption failure: {str(err)}")
-
     try:
         is_auth, total_cost, shape_cost, behav_cost, margin = match_against_fused_template(
             cand_points=payload.points,
@@ -95,9 +119,267 @@ def verify_signature(payload: VerifyRequest):
             "shape_distance": shape_cost,
             "behavioral_distance": behav_cost,
             "threshold": config.THRESHOLD,
-            # margin > 0: accepted with room; margin < 0: rejected by this much.
-            # This is a distance margin, not a probability.
             "margin": margin,
         }
     except Exception as err:
         raise HTTPException(status_code=400, detail=str(err))
+
+
+# ---------------------------------------------------------------- auth
+
+class RegisterIn(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    role: str = "user"           # user | employee | employer_admin
+    business_name: str = ""      # required for employer_admin
+    invite_code: str = ""        # required for employee
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+@app.post("/api/v1/auth/register")
+def register(payload: RegisterIn):
+    role = payload.role.strip()
+    if role not in ("user", "employee", "employer_admin"):
+        raise HTTPException(status_code=400, detail="Invalid role.")
+    if signstore.get_user_by_email(payload.email):
+        raise HTTPException(status_code=400, detail="Email already registered.")
+    try:
+        pw_hash = authmod.hash_password(payload.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    business_id = None
+    if role == "employer_admin":
+        if not payload.business_name.strip():
+            raise HTTPException(status_code=400, detail="Business name is required.")
+    if role == "employee":
+        biz = signstore.get_business_by_invite(payload.invite_code)
+        if not biz:
+            raise HTTPException(status_code=400, detail="Invalid invite code.")
+        business_id = biz["id"]
+
+    user = signstore.create_user(payload.email, pw_hash, payload.name, role, business_id)
+    business = None
+    if role == "employer_admin":
+        business = signstore.create_business(payload.business_name, user["id"])
+        user = signstore.get_user(user["id"])
+    return {"user": authmod.public_user(user),
+            "business": business,
+            "token": authmod.make_token(user["id"], user["role"])}
+
+@app.post("/api/v1/auth/login")
+def login(payload: LoginIn):
+    user = signstore.get_user_by_email(payload.email)
+    if not user or not authmod.check_password(payload.password, user["pw_hash"]):
+        raise HTTPException(status_code=401, detail="Wrong email or password.")
+    return {"user": authmod.public_user(user),
+            "token": authmod.make_token(user["id"], user["role"])}
+
+@app.get("/api/v1/auth/me")
+def me(user: dict = Depends(authmod.get_current_user)):
+    biz = signstore.get_business(user["business_id"]) if user["business_id"] else None
+    out = authmod.public_user(user)
+    out["business"] = {"id": biz["id"], "name": biz["name"],
+                       "invite_code": biz["invite_code"]} if biz else None
+    return out
+
+@app.post("/api/v1/auth/enroll")
+def enroll_me(payload: FusedEnrollRequest, user: dict = Depends(authmod.get_current_user)):
+    """Enroll the logged-in user's air signature (one profile, done once)."""
+    payload.user_id = _template_key(user["id"])
+    result = enroll_fused_signature(payload)
+    signstore.set_enrolled(user["id"])
+    return result
+
+
+# ---------------------------------------------------------------- business
+
+@app.get("/api/v1/business/mine")
+def my_business(user: dict = Depends(authmod.require_roles("employer_admin"))):
+    biz = signstore.get_business(user["business_id"])
+    if not biz:
+        raise HTTPException(status_code=404, detail="No business found.")
+    return {"business": biz, "employees": signstore.business_employees(biz["id"])}
+
+class RemoveEmployeeIn(BaseModel):
+    user_id: int
+
+@app.post("/api/v1/business/employees/remove")
+def remove_employee(payload: RemoveEmployeeIn,
+                    user: dict = Depends(authmod.require_roles("employer_admin"))):
+    if not signstore.remove_employee(payload.user_id, user["business_id"]):
+        raise HTTPException(status_code=404, detail="Employee not found in your business.")
+    return {"status": "removed"}
+
+
+# ---------------------------------------------------------------- platform admin
+
+@app.get("/api/v1/admin/overview")
+def admin_overview(user: dict = Depends(authmod.require_roles("platform_admin"))):
+    return {
+        "users_by_role": signstore.count_users_by_role(),
+        "businesses": len(signstore.list_businesses()),
+        "documents": signstore.count_documents(),
+        "signatures": signstore.count_signatures(),
+    }
+
+@app.get("/api/v1/admin/businesses")
+def admin_businesses(user: dict = Depends(authmod.require_roles("platform_admin"))):
+    return signstore.list_businesses()
+
+@app.get("/api/v1/admin/users")
+def admin_users(user: dict = Depends(authmod.require_roles("platform_admin"))):
+    return signstore.list_users()
+
+
+# ---------------------------------------------------------------- documents
+
+MAX_PDF_BYTES = 10 * 1024 * 1024
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+@app.post("/api/v1/docs/upload")
+async def upload_doc(file: UploadFile = File(...),
+                     user: dict = Depends(authmod.get_current_user)):
+    data = await file.read()
+    if len(data) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=400, detail="PDF too large (10MB max).")
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    digest = _sha256(data)
+    doc = signstore.create_document(user["id"], user["business_id"],
+                                    file.filename or "document.pdf", digest)
+    signstore.doc_path(doc["id"]).write_bytes(data)
+    return {"id": doc["id"], "filename": doc["filename"], "sha256": digest,
+            "status": doc["status"]}
+
+@app.get("/api/v1/docs")
+def list_docs(user: dict = Depends(authmod.get_current_user)):
+    return signstore.list_documents_for(user)
+
+@app.get("/api/v1/docs/{doc_id}/download")
+def download_doc(doc_id: int, user: dict = Depends(authmod.get_current_user)):
+    doc = signstore.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not _can_access_doc(user, doc):
+        raise HTTPException(status_code=403, detail="Not your document.")
+    path = signstore.doc_path(doc_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File missing.")
+    return FileResponse(str(path), media_type="application/pdf", filename=doc["filename"])
+
+def _can_access_doc(user: dict, doc: dict) -> bool:
+    if user["role"] == "platform_admin":
+        return True
+    if doc["owner_user_id"] == user["id"]:
+        return True
+    return bool(user["business_id"] and doc["business_id"] == user["business_id"])
+
+
+# ---------------------------------------------------------------- signing
+
+class SignIn(BaseModel):
+    doc_id: int
+    points: List[Tuple[float, float]]
+    kinematics: List[List[float]] = []
+    include_visible_signature: bool = True
+
+@app.post("/api/v1/sign")
+def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user)):
+    doc = signstore.get_document(payload.doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not _can_access_doc(user, doc):
+        raise HTTPException(status_code=403, detail="Not your document.")
+    if doc["status"] == "signed":
+        raise HTTPException(status_code=400, detail="Document is already signed.")
+
+    # One verification against the enrolled profile
+    try:
+        stored = vault.load_fused_template(_template_key(user["id"]))
+    except LookupError:
+        raise HTTPException(status_code=400,
+                            detail="No air signature enrolled. Enroll once in your profile first.")
+    try:
+        is_auth, _, _, _, margin = match_against_fused_template(
+            payload.points, payload.kinematics, stored, threshold=config.THRESHOLD)
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    if not is_auth:
+        raise HTTPException(status_code=401,
+                            detail=f"Signature did not match your enrolled profile (margin {margin}).")
+
+    original = signstore.doc_path(doc["id"]).read_bytes()
+    digest = _sha256(original)
+    signed_at = pdfsign.utcnow_iso()
+    with signstore.get_conn() as conn:
+        code = signstore.new_verify_code(conn)
+
+    biz = signstore.get_business(user["business_id"]) if user["business_id"] else None
+    stamped = pdfsign.stamp_pdf(
+        original, code=code, signer_name=user["name"],
+        business_name=biz["name"] if biz else None,
+        signed_at=signed_at, doc_hash=digest,
+        gesture_points=payload.points if payload.include_visible_signature else None,
+    )
+    signstore.signed_path(code).write_bytes(stamped)
+    signstore.create_signature(code, doc["id"], user["id"], user["business_id"],
+                               digest, payload.include_visible_signature)
+    signstore.mark_signed(doc["id"])
+    return {"status": "signed", "code": code, "margin": margin,
+            "download": f"/api/v1/sign/{code}/download"}
+
+@app.get("/api/v1/sign/{code}/download")
+def download_signed(code: str, user: dict = Depends(authmod.get_current_user)):
+    sig = signstore.get_signature_by_code(code)
+    if not sig:
+        raise HTTPException(status_code=404, detail="Unknown verification code.")
+    doc = signstore.get_document(sig["document_id"])
+    if not _can_access_doc(user, doc):
+        raise HTTPException(status_code=403, detail="Not your document.")
+    path = signstore.signed_path(code)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Signed file missing.")
+    return FileResponse(str(path), media_type="application/pdf",
+                        filename=f"signed-{code}.pdf")
+
+@app.get("/api/v1/sign/mine")
+def my_signatures(user: dict = Depends(authmod.get_current_user)):
+    return signstore.list_signatures_for(user)
+
+
+# ---------------------------------------------------------------- public verification
+
+@app.get("/api/v1/verify/{code}")
+def verify_code(code: str):
+    sig = signstore.get_signature_by_code(code)
+    if not sig:
+        raise HTTPException(status_code=404, detail="Unknown verification code.")
+    signer = signstore.get_user(sig["signer_user_id"])
+    biz = signstore.get_business(sig["business_id"]) if sig["business_id"] else None
+    doc = signstore.get_document(sig["document_id"])
+    return {
+        "code": sig["code"],
+        "verified": True,
+        "signer_name": signer["name"] if signer else "?",
+        "business_name": biz["name"] if biz else None,
+        "filename": doc["filename"] if doc else "?",
+        "signed_at": sig["created_at"],
+        "doc_sha256": sig["doc_sha256"],
+    }
+
+@app.post("/api/v1/verify/{code}/check")
+async def verify_file(code: str, file: UploadFile = File(...)):
+    sig = signstore.get_signature_by_code(code)
+    if not sig:
+        raise HTTPException(status_code=404, detail="Unknown verification code.")
+    data = await file.read()
+    match = _sha256(data) == sig["doc_sha256"]
+    return {"code": code, "match": match,
+            "detail": "This exact file was signed under this code."
+                      if match else "File differs from the signed original."}

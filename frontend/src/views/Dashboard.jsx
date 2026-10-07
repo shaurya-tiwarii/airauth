@@ -1,0 +1,237 @@
+import { useEffect, useState } from "react";
+import { Auth, Docs, Sign, Biz, Admin, setAuth } from "../api";
+
+function useDocs(auth) {
+  const [docs, setDocs] = useState([]);
+  const [sigs, setSigs] = useState([]);
+  const load = async () => {
+    setDocs(await Docs.list());
+    setSigs(await Sign.mine());
+  };
+  useEffect(() => { load().catch(() => {}); }, []);
+  return { docs, sigs, load };
+}
+
+function DocTable({ docs, onSign, onDownload, showSign }) {
+  if (!docs.length) return <p className="muted">No documents yet.</p>;
+  return (
+    <table className="tbl">
+      <thead><tr><th>Document</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {docs.map((d) => (
+          <tr key={d.id}>
+            <td>{d.filename}<br /><small className="mono">{d.sha256.slice(0, 16)}...</small></td>
+            <td><span className={`pill ${d.status}`}>{d.status}</span></td>
+            <td className="actions">
+              <button className="link" onClick={() => onDownload(d)}>Open</button>
+              {showSign && d.status !== "signed" && (
+                <button className="link strong" onClick={() => onSign(d)}>Sign</button>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function SigTable({ sigs }) {
+  if (!sigs.length) return <p className="muted">Nothing signed yet.</p>;
+  return (
+    <table className="tbl">
+      <thead><tr><th>Code</th><th>Document</th><th>Signer</th><th>Signed at</th><th></th></tr></thead>
+      <tbody>
+        {sigs.map((s) => (
+          <tr key={s.id}>
+            <td className="mono"><b>{s.code}</b></td>
+            <td>{s.filename}</td>
+            <td>{s.signer_name}{s.business_name ? <><br /><small>{s.business_name}</small></> : null}</td>
+            <td><small>{new Date(s.created_at).toLocaleString()}</small></td>
+            <td><button className="link" onClick={() => Sign.download(s.code)}>PDF</button></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function Upload({ onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const up = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setBusy(true); setError("");
+    try { await Docs.upload(file); onDone(); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); e.target.value = ""; }
+  };
+  return (
+    <div>
+      <label className="upload-btn">{busy ? "Uploading..." : "Upload PDF"}
+        <input type="file" accept="application/pdf" hidden onChange={up} disabled={busy} />
+      </label>
+      {error && <div className="error-card">{error}</div>}
+    </div>
+  );
+}
+
+function ProfileCard({ auth, go, refresh }) {
+  return (
+    <section className="dash-card">
+      <div className="eyebrow">MY PROFILE</div>
+      <h3>{auth.user.name}</h3>
+      <p className="muted">{auth.user.email} · {auth.user.role.replace("_", " ")}</p>
+      {auth.user.airsig_enrolled
+        ? <p className="ok-line">Signature profile enrolled. One verification signs any document.</p>
+        : <><p className="muted">No signature enrolled yet. You need one profile before signing.</p>
+            <button className="dark-auth-button" onClick={() => go("enroll")}>Enroll my signature</button></>}
+    </section>
+  );
+}
+
+/* ---------------- role dashboards ---------------- */
+
+function UserDash({ auth, go, refresh }) {
+  const { docs, sigs, load } = useDocs(auth);
+  const [signDoc, setSignDoc] = useState(null);
+  const startSign = (d) => {
+    if (!auth.user.airsig_enrolled) { go("enroll"); return; }
+    setSignDoc(d); go("sign", { doc: d });
+  };
+  return (
+    <>
+      <ProfileCard auth={auth} go={go} refresh={refresh} />
+      <section className="dash-card">
+        <div className="dash-head"><h3>My documents</h3><Upload onDone={load} /></div>
+        <DocTable docs={docs} showSign onSign={startSign}
+          onDownload={(d) => Docs.download(d.id, d.filename)} />
+      </section>
+      <section className="dash-card">
+        <h3>Signed by me</h3>
+        <SigTable sigs={sigs} />
+      </section>
+    </>
+  );
+}
+
+function EmployeeDash(p) {
+  return <UserDash {...p} />;
+}
+
+function EmployerDash({ auth, go, refresh }) {
+  const { docs, sigs, load } = useDocs(auth);
+  const [biz, setBiz] = useState(null);
+  useEffect(() => { Biz.mine().then(setBiz).catch(() => {}); }, []);
+  const remove = async (uid) => {
+    if (!confirm("Remove this employee?")) return;
+    await Biz.removeEmployee(uid);
+    setBiz(await Biz.mine());
+  };
+  return (
+    <>
+      <section className="dash-card">
+        <div className="eyebrow">MY BUSINESS</div>
+        <h3>{biz?.business?.name || "..."}</h3>
+        <p className="muted">Invite code: <b className="mono">{biz?.business?.invite_code}</b>
+          <span className="muted"> — share it so employees can join.</span></p>
+        <h4>Team ({biz?.employees?.length || 0})</h4>
+        <table className="tbl"><tbody>
+          {(biz?.employees || []).map((e) => (
+            <tr key={e.id}><td>{e.name}<br /><small>{e.email}</small></td>
+              <td>{e.role.replace("_", " ")}</td>
+              <td>{e.airsig_enrolled ? "Enrolled" : "Not enrolled"}</td>
+              <td>{e.role === "employee" &&
+                <button className="link danger" onClick={() => remove(e.id)}>Remove</button>}</td>
+            </tr>
+          ))}
+        </tbody></table>
+      </section>
+      <section className="dash-card">
+        <div className="dash-head"><h3>Business documents</h3><Upload onDone={load} /></div>
+        <DocTable docs={docs} showSign={false}
+          onDownload={(d) => Docs.download(d.id, d.filename)} />
+      </section>
+      <section className="dash-card">
+        <h3>Signature log</h3>
+        <SigTable sigs={sigs} />
+      </section>
+    </>
+  );
+}
+
+function PlatformDash({ auth, go, refresh }) {
+  const [ov, setOv] = useState(null);
+  const [bizs, setBizs] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [sigs, setSigs] = useState([]);
+  useEffect(() => {
+    (async () => {
+      setOv(await Admin.overview());
+      setBizs(await Admin.businesses());
+      setUsers(await Admin.users());
+      setSigs(await Sign.mine());
+    })().catch(() => {});
+  }, []);
+  return (
+    <>
+      <section className="dash-card">
+        <div className="eyebrow">PLATFORM ADMIN</div>
+        <h3>Overview</h3>
+        <div className="stat-row">
+          <div className="stat"><b>{ov?.businesses ?? "-"}</b><span>Businesses</span></div>
+          <div className="stat"><b>{ov?.documents ?? "-"}</b><span>Documents</span></div>
+          <div className="stat"><b>{ov?.signatures ?? "-"}</b><span>Signatures</span></div>
+          {Object.entries(ov?.users_by_role || {}).map(([r, n]) => (
+            <div className="stat" key={r}><b>{n}</b><span>{r.replace("_", " ")}s</span></div>
+          ))}
+        </div>
+      </section>
+      <section className="dash-card"><h3>Businesses</h3>
+        <table className="tbl"><tbody>
+          {bizs.map((b) => <tr key={b.id}><td>{b.name}</td>
+            <td className="mono">{b.invite_code}</td>
+            <td><small>{new Date(b.created_at).toLocaleDateString()}</small></td></tr>)}
+        </tbody></table>
+      </section>
+      <section className="dash-card"><h3>Users</h3>
+        <table className="tbl"><tbody>
+          {users.map((u) => <tr key={u.id}><td>{u.name}<br /><small>{u.email}</small></td>
+            <td>{u.role.replace("_", " ")}</td>
+            <td>{u.airsig_enrolled ? "Enrolled" : "-"}</td></tr>)}
+        </tbody></table>
+      </section>
+      <section className="dash-card"><h3>All signatures</h3><SigTable sigs={sigs} /></section>
+    </>
+  );
+}
+
+export default function Dashboard({ auth, go, onLogout }) {
+  const [me, setMe] = useState(auth);
+  const refresh = async () => {
+    try {
+      const u = await Auth.me();
+      const next = { ...getAuthSafe(), user: u };
+      setAuth(next); setMe(next);
+    } catch {}
+  };
+  const role = me.user.role;
+  return (
+    <main className="dash">
+      <div className="dash-top">
+        <div><div className="eyebrow">DASHBOARD</div>
+          <h2>{role === "platform_admin" ? "Platform" : role === "employer_admin" ? "Business" : "My workspace"}</h2></div>
+        <button className="light-auth-button" onClick={() => { setAuth(null); onLogout(); }}>Log out</button>
+      </div>
+      {role === "user" && <UserDash auth={me} go={go} refresh={refresh} />}
+      {role === "employee" && <EmployeeDash auth={me} go={go} refresh={refresh} />}
+      {role === "employer_admin" && <EmployerDash auth={me} go={go} refresh={refresh} />}
+      {role === "platform_admin" && <PlatformDash auth={me} go={go} refresh={refresh} />}
+    </main>
+  );
+}
+
+function getAuthSafe() {
+  try { return JSON.parse(localStorage.getItem("airauth_auth") || "{}"); }
+  catch { return {}; }
+}
