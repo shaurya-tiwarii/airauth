@@ -66,7 +66,7 @@ def enroll_fused_signature(payload: FusedEnrollRequest):
         result = vault.save_fused_template(payload.user_id, raw_passes)
         return {
             "status": "success",
-            "message": f"Successfully synthesized and encrypted {config.ENROLL_PASSES}-pass "
+            "message": f"Enrolled and encrypted {config.ENROLL_PASSES}-pass "
                        f"master template for '{payload.user_id}'.",
             "template_shape": result["template_shape"],
         }

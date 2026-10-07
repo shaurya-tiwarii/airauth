@@ -277,18 +277,18 @@ export default function App() {
 
           <section className="home-section" id="how">
             <div><b>01</b><strong>Draw in the air</strong><p>Pinch thumb + index and create a natural gesture.</p></div>
-            <div><b>02</b><strong>Learn your motion</strong><p>Three passes become a fused personal template.</p></div>
+            <div><b>02</b><strong>Teach it your gesture</strong><p>Three passes are fused into your personal template.</p></div>
             <div><b>03</b><strong>Verify securely</strong><p>Trajectory and behavior are checked together.</p></div>
           </section>
 
           <section className="home-section story" id="security">
-            <div className="eyebrow">THE SIGNAL IS MORE THAN THE SHAPE</div>
-            <h2>Your signature is the path.<br /><span>Your movement is the proof.</span></h2>
+            <div className="eyebrow">TWO THINGS GET CHECKED</div>
+            <h2>The shape of your gesture.<br /><span>The way you draw it.</span></h2>
           </section>
 
           <section className="home-section about" id="about">
             <div className="about-card"><div className="about-icon">⌁</div><div><div className="eyebrow">PRIVACY FIRST</div><h3>Local biometric vault</h3><p>AirAuth stores the encrypted signature template in your local backend for this prototype.</p></div></div>
-            <div className="about-card"><div className="about-icon">◎</div><div><div className="eyebrow">RESPONSIVE</div><h3>Built for real movement</h3><p>Fluid UI and camera interaction across desktop and smaller screens.</p></div></div>
+            <div className="about-card"><div className="about-icon">◎</div><div><div className="eyebrow">RESPONSIVE</div><h3>Works on small screens too</h3><p>The camera view and drawing canvas adapt to desktop and smaller screens.</p></div></div>
           </section>
         </main>
       )}
@@ -298,8 +298,8 @@ export default function App() {
           <div className="auth-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="cloud-wrap"><img src="/cloud-mascot.png" alt="" /></div>
             <button className="modal-close" onClick={closeAuth}>×</button>
-            <div className="auth-title">Welcome to AirAuth</div>
-            <p className="auth-subtitle">Secure your identity with your air signature.</p>
+            <div className="auth-title">Sign in with AirAuth</div>
+            <p className="auth-subtitle">Draw your signature in the air to prove it's you.</p>
             <div className="auth-user">
               <label>User ID</label>
               <input value={userId} onChange={(e) => setUserId(e.target.value)} />
@@ -339,7 +339,7 @@ export default function App() {
 
             <aside className="info-card">
               <div className="eyebrow">{view === "enroll" ? "3-PASS ENROLLMENT" : "VERIFICATION"}</div>
-              <h3>{view === "enroll" ? "Build your master template." : "One gesture. One answer."}</h3>
+              <h3>{view === "enroll" ? "Draw three passes to build your template." : "Draw your gesture once to verify."}</h3>
               {view === "enroll" ? (
                 <>
                   {[0,1,2].map((i) => <div className={`pass-row ${passes.length > i ? "done" : passes.length === i ? "active" : ""}`} key={i}><span>{passes.length > i ? "✓" : i + 1}</span><div><b>Pass {i + 1}</b><small>{passes.length > i ? "Captured" : passes.length === i ? "Ready" : "Waiting"}</small></div></div>)}

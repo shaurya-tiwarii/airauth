@@ -1,6 +1,6 @@
 # AirAuth
 
-Air-signature biometric authentication: draw a gesture in the air (webcam + MediaPipe hand tracking) and AirAuth verifies you on **two signals** — the *shape* of the trajectory (normalized, resampled, turning-angle features matched with Sakoe-Chiba DTW) and the *behavior* (velocity / acceleration / tilt statistics from the motion kinematics).
+Draw a gesture in the air (webcam + MediaPipe hand tracking) and AirAuth checks two things: the *shape* of your trajectory (normalized, resampled, turning-angle features matched with Sakoe-Chiba DTW) and the *behavior* (velocity, acceleration and tilt stats from the motion kinematics).
 
 Three enrollment passes are fused into one master template via DTW Barycenter Averaging, stored AES-256-GCM encrypted in SQLite. Verification is 70/30 score-level fusion against a calibrated threshold.
 
@@ -23,7 +23,7 @@ Backend test: http://127.0.0.1:8000/health
 
 The template vault is encrypted with AES-256-GCM. The key is **never in source code**:
 
-1. Set `AIRAUTH_MASTER_KEY` (64 hex chars) — recommended, or
+1. Set `AIRAUTH_MASTER_KEY` (64 hex chars, recommended), or
 2. On first run the backend generates one and stores it in `backend/.airauth_key` (0600 perms, git-ignored).
 
 Back it up: lose the key and enrolled templates are unrecoverable (by design).
@@ -56,7 +56,7 @@ python eval.py --synthetic
 python eval.py attempts.json
 ```
 
-`attempts.json` is a list of `{"user_id", "points", "kinematics", "label": "genuine"|"impostor"}`. Enroll each user first, then record genuine and impostor attempts and let the harness print the FAR/FRR sweep so `config.THRESHOLD` is chosen from data.
+`attempts.json` is a list of `{"user_id", "points", "kinematics", "label": "genuine"|"impostor"}`. Enroll each user first, then record genuine and impostor attempts. The harness prints the FAR/FRR sweep so you can set `config.THRESHOLD` from data instead of guessing.
 
 ## Tests
 
@@ -71,7 +71,7 @@ The live sky background uses the video supplied as `frontend/public/foundable-sk
 
 The distributed project contains no enrolled biometric database. The default user is `shaurya_01`.
 
-## Threat model & limitations (read before calling this "secure")
+## Threat model & limitations
 
 - **No liveness detection.** A video recording of your gesture, or shoulder-surfing, can defeat shape matching. Behavioral features raise the bar but are not evaluated against skilled forgeries here.
 - **Biometrics are irrevocable.** You cannot rotate your hand motion like a password. If a template is ever decrypted, the user must pick a completely new gesture. Cancelable-biometric transforms are future work.
