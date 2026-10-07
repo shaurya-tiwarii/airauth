@@ -122,19 +122,33 @@ function EmployeeDash(p) {
 function EmployerDash({ auth, go, refresh }) {
   const { docs, sigs, load } = useDocs(auth);
   const [biz, setBiz] = useState(null);
+  const [assignSel, setAssignSel] = useState({});
   useEffect(() => { Biz.mine().then(setBiz).catch(() => {}); }, []);
   const remove = async (uid) => {
     if (!confirm("Remove this employee?")) return;
     await Biz.removeEmployee(uid);
     setBiz(await Biz.mine());
   };
+  const startSign = (d) => {
+    if (!auth.user.airsig_enrolled) { go("enroll"); return; }
+    go("sign", { doc: d });
+  };
+  const employees = (biz?.employees || []).filter((e) => e.role === "employee");
+  const assign = async (docId) => {
+    const uid = parseInt(assignSel[docId] || "", 10);
+    if (!uid) return;
+    await Docs.assign(docId, uid);
+    setAssignSel((s) => ({ ...s, [docId]: "" }));
+    load();
+  };
   return (
     <>
+      <ProfileCard auth={auth} go={go} refresh={refresh} />
       <section className="dash-card">
         <div className="eyebrow">MY BUSINESS</div>
         <h3>{biz?.business?.name || "..."}</h3>
-        <p className="muted">Invite code: <b className="mono">{biz?.business?.invite_code}</b>
-          <span className="muted"> — share it so employees can join.</span></p>
+        <p className="muted">Invite code: <b className="mono">{biz?.business?.invite_code}</b>.
+          Share it so employees can join.</p>
         <h4>Team ({biz?.employees?.length || 0})</h4>
         <table className="tbl"><tbody>
           {(biz?.employees || []).map((e) => (
@@ -149,8 +163,42 @@ function EmployerDash({ auth, go, refresh }) {
       </section>
       <section className="dash-card">
         <div className="dash-head"><h3>Business documents</h3><Upload onDone={load} /></div>
-        <DocTable docs={docs} showSign={false}
-          onDownload={(d) => Docs.download(d.id, d.filename)} />
+        {docs.length ? (
+          <table className="tbl">
+            <thead><tr><th>Document</th><th>Status</th><th>Assigned to</th><th></th></tr></thead>
+            <tbody>
+              {docs.map((d) => (
+                <tr key={d.id}>
+                  <td>{d.filename}<br /><small className="mono">{d.sha256.slice(0, 16)}...</small></td>
+                  <td><span className={`pill ${d.status}`}>{d.status}</span></td>
+                  <td>
+                    {d.assignee_user_id
+                      ? <small>{(employees.find((e) => e.id === d.assignee_user_id) || {}).name || "Employee"}</small>
+                      : <span className="muted small">Unassigned</span>}
+                  </td>
+                  <td className="actions">
+                    <button className="link" onClick={() => Docs.download(d.id, d.filename)}>Open</button>
+                    {d.status !== "signed" && (
+                      <button className="link strong" onClick={() => startSign(d)}>Sign</button>
+                    )}
+                    {d.status !== "signed" && employees.length > 0 && (
+                      <span className="assign-row">
+                        <select value={assignSel[d.id] || ""}
+                          onChange={(e) => setAssignSel((s) => ({ ...s, [d.id]: e.target.value }))}>
+                          <option value="">Assign...</option>
+                          {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                        </select>
+                        <button className="link" onClick={() => assign(d.id)}
+                          disabled={!assignSel[d.id]}>Assign</button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p className="muted">No documents yet.</p>}
+        <p className="muted small">Employees only see documents assigned to them, plus their own uploads.</p>
       </section>
       <section className="dash-card">
         <h3>Signature log</h3>

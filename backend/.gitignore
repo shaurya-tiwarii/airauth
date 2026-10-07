@@ -6,4 +6,5 @@ __pycache__/
 *.sqlite3
 .env
 .airauth_key
+.jwt_secret
 storage/

@@ -124,10 +124,39 @@ def test_signature_record_flow(db):
     doc = signstore.create_document(u["id"], None, "contract.pdf", "ff" * 32)
     with signstore.get_conn() as conn:
         code = signstore.new_verify_code(conn)
-    signstore.create_signature(code, doc["id"], u["id"], None, "ff" * 32, True)
+    signstore.create_signature(code, doc["id"], u["id"], None, "ff" * 32, True,
+                               stamped_sha256="ee" * 32)
     signstore.mark_signed(doc["id"])
     assert signstore.get_document(doc["id"])["status"] == "signed"
     sig = signstore.get_signature_by_code(code.lower())
     assert sig["document_id"] == doc["id"]
+    assert sig["stamped_sha256"] == "ee" * 32
     mine = signstore.list_signatures_for(signstore.get_user(u["id"]))
     assert len(mine) == 1 and mine[0]["filename"] == "contract.pdf"
+
+
+def test_document_assignment_flow(db):
+    admin = signstore.create_user("boss@co.com", authmod.hash_password("password123"),
+                                  "Boss", "employer_admin")
+    biz = signstore.create_business("Acme", admin["id"])
+    emp = signstore.create_user("e@co.com", authmod.hash_password("password123"),
+                                "Emp", "employee", business_id=biz["id"])
+    emp2 = signstore.create_user("e2@co.com", authmod.hash_password("password123"),
+                                 "Emp2", "employee", business_id=biz["id"])
+    doc = signstore.create_document(admin["id"], biz["id"], "offer.pdf", "aa" * 32)
+
+    # Employee sees nothing before assignment (doc is not theirs).
+    assert signstore.list_documents_for(signstore.get_user(emp["id"])) == []
+    # Assign to emp; emp2 still sees nothing.
+    assert signstore.assign_document(doc["id"], emp["id"], biz["id"])
+    assert [d["id"] for d in signstore.list_documents_for(signstore.get_user(emp["id"]))] == [doc["id"]]
+    assert signstore.list_documents_for(signstore.get_user(emp2["id"])) == []
+    # Cannot assign to a non-employee or outside the business.
+    assert not signstore.assign_document(doc["id"], admin["id"], biz["id"])
+    assert not signstore.assign_document(doc["id"], emp["id"], biz["id"] + 999)
+    # Migration columns exist on fresh and upgraded DBs.
+    with signstore.get_conn() as conn:
+        dcols = [r["name"] for r in conn.execute("PRAGMA table_info(documents)")]
+        scols = [r["name"] for r in conn.execute("PRAGMA table_info(signatures)")]
+    assert "assignee_user_id" in dcols
+    assert "stamped_sha256" in scols

@@ -36,7 +36,8 @@ export default function VerifyPortal() {
         <p className="muted">
           Enter the verification code stamped on the document. To prove the file
           itself is unchanged since signing, upload it below and we will compare
-          its fingerprint against the signed original.
+          its fingerprint. Both the original file and the stamped signed PDF are
+          accepted.
         </p>
         <form onSubmit={lookup} className="row-form">
           <input value={code} onChange={(e) => setCode(e.target.value)}
@@ -61,8 +62,8 @@ export default function VerifyPortal() {
             </table>
             <div className="integrity">
               <b>Check file integrity</b>
-              <p className="muted">Upload the document to confirm it is byte-for-byte
-              the file that was signed.</p>
+              <p className="muted">Upload the original file or the stamped signed PDF
+              to confirm it is unchanged since signing.</p>
               <div className="row-form">
                 <input type="file" accept="application/pdf"
                   onChange={(e) => setFile(e.target.files[0])} />
@@ -71,9 +72,9 @@ export default function VerifyPortal() {
               </div>
               {check && (
                 <div className={check.match ? "verify-ok" : "verify-bad"}>
-                  {check.match
-                    ? "This exact file was signed under this code."
-                    : "This file differs from the signed original."}
+                  {check.detail || (check.match
+                    ? "This file matches the signed record."
+                    : "This file differs from the signed record.")}
                 </div>
               )}
             </div>

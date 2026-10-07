@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr
@@ -25,9 +25,13 @@ except ImportError:
 
 app = FastAPI(title="AirAuth")
 
+_cors_origins = [o.strip() for o in
+                 os.environ.get("AIRAUTH_CORS_ORIGINS",
+                                "http://localhost:3000,http://127.0.0.1:3000").split(",")
+                 if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,20 +41,48 @@ vault = SecureBiometricVault()
 signstore.init_db()
 
 
+# ---- light rate limiting (in-memory sliding window, per instance) ---------
+
+import time
+from collections import defaultdict
+
+_rate_hits: dict = defaultdict(list)
+RATE_LIMIT_N = int(os.environ.get("AIRAUTH_RATE_LIMIT_N", "30"))
+RATE_LIMIT_WINDOW = int(os.environ.get("AIRAUTH_RATE_LIMIT_WINDOW", "60"))
+
+def _check_rate_limit(key: str):
+    now = time.monotonic()
+    hits = [t for t in _rate_hits[key] if now - t < RATE_LIMIT_WINDOW]
+    if len(hits) >= RATE_LIMIT_N:
+        raise HTTPException(status_code=429,
+                            detail="Too many attempts. Wait a minute and try again.")
+    hits.append(now)
+    _rate_hits[key] = hits
+
+def _rate_key(request, prefix: str) -> str:
+    client = request.client.host if request.client else "unknown"
+    return f"{prefix}:{client}"
+
+
 def _template_key(uid: int) -> str:
     return f"user:{uid}"
 
 
 @app.on_event("startup")
 def seed_platform_admin():
-    email = os.environ.get("AIRAUTH_ADMIN_EMAIL", "admin@airauth.local")
-    password = os.environ.get("AIRAUTH_ADMIN_PASSWORD", "change-me-now")
+    # Fail closed: no default credentials are ever created. Set both env vars
+    # to seed the platform admin on first boot.
+    email = os.environ.get("AIRAUTH_ADMIN_EMAIL")
+    password = os.environ.get("AIRAUTH_ADMIN_PASSWORD")
+    if not email or not password:
+        print("[airauth] AIRAUTH_ADMIN_EMAIL/PASSWORD not set: "
+              "no platform admin seeded.")
+        return
     if not signstore.get_user_by_email(email):
         try:
             signstore.create_user(email, authmod.hash_password(password),
                                   "Platform Admin", "platform_admin")
-            print(f"[airauth] platform admin seeded: {email}"
-                  + (" (DEFAULT PASSWORD - change it)" if password == "change-me-now" else ""))
+            print(f"[airauth] platform admin seeded: {email}")
         except Exception as e:
             print(f"[airauth] admin seed failed: {e}")
 
@@ -140,7 +172,8 @@ class LoginIn(BaseModel):
     password: str
 
 @app.post("/api/v1/auth/register")
-def register(payload: RegisterIn):
+def register(payload: RegisterIn, request: Request):
+    _check_rate_limit(_rate_key(request, "register"))
     role = payload.role.strip()
     if role not in ("user", "employee", "employer_admin"):
         raise HTTPException(status_code=400, detail="Invalid role.")
@@ -171,7 +204,8 @@ def register(payload: RegisterIn):
             "token": authmod.make_token(user["id"], user["role"])}
 
 @app.post("/api/v1/auth/login")
-def login(payload: LoginIn):
+def login(payload: LoginIn, request: Request):
+    _check_rate_limit(_rate_key(request, "login"))
     user = signstore.get_user_by_email(payload.email)
     if not user or not authmod.check_password(payload.password, user["pw_hash"]):
         raise HTTPException(status_code=401, detail="Wrong email or password.")
@@ -278,7 +312,32 @@ def _can_access_doc(user: dict, doc: dict) -> bool:
         return True
     if doc["owner_user_id"] == user["id"]:
         return True
-    return bool(user["business_id"] and doc["business_id"] == user["business_id"])
+    if user["role"] == "employer_admin" and user["business_id"] \
+            and doc["business_id"] == user["business_id"]:
+        return True
+    # Employees only touch documents assigned to them, never the whole
+    # business inbox.
+    if user["role"] == "employee" \
+            and doc.get("assignee_user_id") == user["id"]:
+        return True
+    return False
+
+
+class AssignIn(BaseModel):
+    user_id: int
+
+@app.post("/api/v1/docs/{doc_id}/assign")
+def assign_doc(doc_id: int, payload: AssignIn,
+               user: dict = Depends(authmod.require_roles("employer_admin"))):
+    doc = signstore.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not user["business_id"] or doc["business_id"] != user["business_id"]:
+        raise HTTPException(status_code=403, detail="Not your business's document.")
+    if not signstore.assign_document(doc_id, payload.user_id, user["business_id"]):
+        raise HTTPException(status_code=400,
+                            detail="Assignee must be an employee of your business.")
+    return {"status": "assigned", "doc_id": doc_id, "assignee_user_id": payload.user_id}
 
 
 # ---------------------------------------------------------------- signing
@@ -328,8 +387,10 @@ def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user
         gesture_points=payload.points if payload.include_visible_signature else None,
     )
     signstore.signed_path(code).write_bytes(stamped)
+    stamped_digest = _sha256(stamped)
     signstore.create_signature(code, doc["id"], user["id"], user["business_id"],
-                               digest, payload.include_visible_signature)
+                               digest, payload.include_visible_signature,
+                               stamped_sha256=stamped_digest)
     signstore.mark_signed(doc["id"])
     return {"status": "signed", "code": code, "margin": margin,
             "download": f"/api/v1/sign/{code}/download"}
@@ -371,6 +432,7 @@ def verify_code(code: str):
         "filename": doc["filename"] if doc else "?",
         "signed_at": sig["created_at"],
         "doc_sha256": sig["doc_sha256"],
+        "stamped_sha256": sig["stamped_sha256"],
     }
 
 @app.post("/api/v1/verify/{code}/check")
@@ -379,7 +441,19 @@ async def verify_file(code: str, file: UploadFile = File(...)):
     if not sig:
         raise HTTPException(status_code=404, detail="Unknown verification code.")
     data = await file.read()
-    match = _sha256(data) == sig["doc_sha256"]
-    return {"code": code, "match": match,
-            "detail": "This exact file was signed under this code."
-                      if match else "File differs from the signed original."}
+    if len(data) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=400, detail="PDF too large (10MB max).")
+    digest = _sha256(data)
+    # The stamped PDF anyone downloads carries the seal, so its bytes differ
+    # from the original upload. Both are legitimate verification targets.
+    if sig["stamped_sha256"] and digest == sig["stamped_sha256"]:
+        return {"code": code, "match": True,
+                "detail": "This is the stamped signed PDF. It matches the seal "
+                          "issued under this code."}
+    if digest == sig["doc_sha256"]:
+        return {"code": code, "match": True,
+                "detail": "This is the exact original file that was signed under "
+                          "this code."}
+    return {"code": code, "match": False,
+            "detail": "File differs from both the signed original and the "
+                      "stamped PDF."}

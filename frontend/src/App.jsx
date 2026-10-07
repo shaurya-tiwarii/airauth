@@ -5,7 +5,7 @@ import VerifyPortal from "./views/Verify";
 import Dashboard from "./views/Dashboard";
 import Signing from "./views/Signing";
 import Enroll from "./views/Enroll";
-import { getAuth, setAuth } from "./api";
+import { getAuth, setAuth, Auth } from "./api";
 
 export default function App() {
   const [route, setRoute] = useState({ name: "home" });
@@ -20,6 +20,17 @@ export default function App() {
     setAuthState(data);
     const needsEnroll = data.user.role !== "platform_admin" && !data.user.airsig_enrolled;
     go(needsEnroll ? "enroll" : "dashboard");
+  };
+
+  // Re-fetch the profile after enrollment so the enrolled flag is real,
+  // not the stale value from login time.
+  const refreshAuth = async () => {
+    try {
+      const user = await Auth.me();
+      const next = { ...(getAuth() || {}), user };
+      setAuth(next);
+      setAuthState(next);
+    } catch {}
   };
 
   const onLogout = () => {
@@ -56,7 +67,7 @@ export default function App() {
     return (
       <div className="app-shell workspace-shell">
         <SimpleNav go={go} auth={auth} />
-        <Enroll go={go} refresh={() => {}} />
+        <Enroll go={go} refresh={refreshAuth} />
       </div>
     );
   }
@@ -65,7 +76,7 @@ export default function App() {
     return (
       <div className="app-shell workspace-shell">
         <SimpleNav go={go} auth={auth} />
-        <Signing doc={route.doc} go={go} refresh={() => {}} />
+        <Signing doc={route.doc} go={go} refresh={refreshAuth} />
       </div>
     );
   }

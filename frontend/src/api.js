@@ -55,6 +55,7 @@ export const Docs = {
   list: () => api("GET", "/docs"),
   upload: (file) => { const f = new FormData(); f.append("file", file); return apiForm("/docs/upload", f); },
   download: (id, name) => download(`/docs/${id}/download`, name),
+  assign: (id, user_id) => api("POST", `/docs/${id}/assign`, { user_id }),
 };
 
 export const Sign = {

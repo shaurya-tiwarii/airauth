@@ -24,7 +24,7 @@ export default function Enroll({ go, refresh }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Enrollment failed.");
-      refresh();
+      await refresh();
       go("dashboard");
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -33,7 +33,7 @@ export default function Enroll({ go, refresh }) {
   return (
     <main className="workspace">
       <div className="workspace-top">
-        <button className="back-link" onClick={() => go("dashboard")}>← Back</button>
+        <button className="back-link" onClick={() => go("dashboard")}>Back</button>
         <div>
           <div className="eyebrow">PROFILE SETUP</div>
           <h2>Enroll your signature once.</h2>

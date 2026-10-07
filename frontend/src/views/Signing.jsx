@@ -51,7 +51,7 @@ export default function Signing({ doc, go, refresh }) {
   return (
     <main className="workspace">
       <div className="workspace-top">
-        <button className="back-link" onClick={() => go("dashboard")}>← Back</button>
+        <button className="back-link" onClick={() => go("dashboard")}>Back</button>
         <div>
           <div className="eyebrow">SIGN DOCUMENT</div>
           <h2>{doc.filename}</h2>

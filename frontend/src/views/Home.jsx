@@ -45,7 +45,7 @@ export default function Home({ go, auth }) {
           is sealed with a verifiable AirAuth stamp. Anyone can check the code.</p>
           <div className="hero-cta-row">
             <button className="pill-cta" onClick={() => go(auth ? "dashboard" : "register")}>
-              {auth ? "Open dashboard" : "Get started"} <span>→</span>
+              {auth ? "Open dashboard" : "Get started"}
             </button>
             <button className="pill-ghost" onClick={() => go("verify")}>Verify a document</button>
           </div>

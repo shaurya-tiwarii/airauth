@@ -65,6 +65,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 owner_user_id INTEGER NOT NULL,
                 business_id INTEGER,
+                assignee_user_id INTEGER,
                 filename TEXT NOT NULL,
                 sha256 TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -79,10 +80,17 @@ def init_db():
                 signer_user_id INTEGER NOT NULL,
                 business_id INTEGER,
                 doc_sha256 TEXT NOT NULL,
+                stamped_sha256 TEXT,
                 include_visible_sig INTEGER DEFAULT 1,
                 created_at TEXT NOT NULL
             )
         """)
+        # Migrations for databases created before these columns existed.
+        for table, column, ctype in (("documents", "assignee_user_id", "INTEGER"),
+                                     ("signatures", "stamped_sha256", "TEXT")):
+            cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
+            if column not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
         conn.commit()
 
 
@@ -224,15 +232,35 @@ def list_documents_for(user: dict) -> list:
     with get_conn() as conn:
         if user["role"] == "platform_admin":
             rows = conn.execute("SELECT * FROM documents ORDER BY id DESC").fetchall()
-        elif user["role"] in ("employer_admin", "employee") and user["business_id"]:
+        elif user["role"] == "employer_admin" and user["business_id"]:
             rows = conn.execute(
                 "SELECT * FROM documents WHERE business_id = ? OR owner_user_id = ?"
                 " ORDER BY id DESC", (user["business_id"], user["id"])).fetchall()
+        elif user["role"] == "employee" and user["business_id"]:
+            # Employees see only their own uploads and documents assigned to them.
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE owner_user_id = ? OR assignee_user_id = ?"
+                " ORDER BY id DESC", (user["id"], user["id"])).fetchall()
         else:
             rows = conn.execute(
                 "SELECT * FROM documents WHERE owner_user_id = ? ORDER BY id DESC",
                 (user["id"],)).fetchall()
         return [row_to_dict(r) for r in rows]
+
+
+def assign_document(doc_id: int, assignee_id: int, business_id: int) -> bool:
+    """Assign a business document to an employee of the same business."""
+    with get_conn() as conn:
+        doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if not doc or doc["business_id"] != business_id:
+            return False
+        emp = conn.execute("SELECT * FROM users WHERE id = ?", (assignee_id,)).fetchone()
+        if not emp or emp["role"] != "employee" or emp["business_id"] != business_id:
+            return False
+        conn.execute("UPDATE documents SET assignee_user_id = ? WHERE id = ?",
+                     (assignee_id, doc_id))
+        conn.commit()
+        return True
 
 
 def mark_signed(did: int):
@@ -252,15 +280,16 @@ def signed_path(code: str) -> Path:
 # ---- signatures ----------------------------------------------------------
 
 def create_signature(code: str, document_id: int, signer_id: int,
-                     business_id, doc_sha256: str, include_visible_sig: bool) -> dict:
+                     business_id, doc_sha256: str, include_visible_sig: bool,
+                     stamped_sha256: str = None) -> dict:
     with get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO signatures
                (code, document_id, signer_user_id, business_id, doc_sha256,
-                include_visible_sig, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                stamped_sha256, include_visible_sig, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (code, document_id, signer_id, business_id, doc_sha256,
-             1 if include_visible_sig else 0, utcnow()),
+             stamped_sha256, 1 if include_visible_sig else 0, utcnow()),
         )
         sid = cur.lastrowid
         conn.commit()
@@ -277,7 +306,7 @@ def list_signatures_for(user: dict) -> list:
     with get_conn() as conn:
         if user["role"] == "platform_admin":
             rows = conn.execute("SELECT * FROM signatures ORDER BY id DESC").fetchall()
-        elif user["role"] in ("employer_admin", "employee") and user["business_id"]:
+        elif user["role"] == "employer_admin" and user["business_id"]:
             rows = conn.execute(
                 "SELECT * FROM signatures WHERE business_id = ? OR signer_user_id = ?"
                 " ORDER BY id DESC", (user["business_id"], user["id"])).fetchall()
