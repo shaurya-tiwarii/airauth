@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 
 export default function Home({ go, auth }) {
-  const [night, setNight] = useState(() => localStorage.getItem("airauth_night") === "1");
+  const [night, setNight] = useState(() => {
+    const stored = localStorage.getItem("airauth_night");
+    if (stored !== null) return stored === "1";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
   useEffect(() => {
     localStorage.setItem("airauth_night", night ? "1" : "0");
   }, [night]);
@@ -9,11 +13,10 @@ export default function Home({ go, auth }) {
   return (
     <div className={`app-shell home-shell ${night ? "night" : ""}`}>
       <div className="sky-backdrop" aria-hidden="true">
-        <video autoPlay loop muted playsInline src="/foundable-sky.mp4" />
-        <div className="sky-soften" />
-        <div className="sky-center-cover" />
-        {night && <div className="night-veil" />}
-        {night && <div className="stars" />}
+        <div className="sky-day" />
+        <div className="sky-night" />
+        <img className="sky-clouds" src="/sky-clouds.png" alt="" />
+        <div className="stars" />
       </div>
 
       <header className="nav">
