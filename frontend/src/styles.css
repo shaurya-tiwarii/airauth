@@ -95,6 +95,7 @@
   radial-gradient(1px 1px at 95% 80%,#fff,transparent)}
 .night .stars{opacity:.9}
 .night .hero-centered h1,.night .hero-centered p{color:#f2f6fa;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+.night .hero-centered h1 span{color:#c9dcf0}
 .night .hero-eyebrow{color:#cfe0ee}
 .night .bottom-hint{color:#cfe0ee}
 .night .nav .brand,.night .nav-links a,.night .nav-links .linklike{color:#f2f6fa}
