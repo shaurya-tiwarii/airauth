@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Auth, Docs, Sign, Biz, Admin, setAuth } from "../api";
 
 function useDocs(auth) {
@@ -58,6 +58,7 @@ function SigTable({ sigs }) {
 function Upload({ onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const inputRef = useRef(null);
   const up = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -68,9 +69,12 @@ function Upload({ onDone }) {
   };
   return (
     <div>
-      <label className="upload-btn">{busy ? "Uploading..." : "Upload PDF"}
-        <input type="file" accept="application/pdf" hidden onChange={up} disabled={busy} />
-      </label>
+      <button type="button" className="upload-btn" disabled={busy}
+        onClick={() => inputRef.current?.click()}>
+        {busy ? "Uploading..." : "Upload PDF"}
+      </button>
+      <input ref={inputRef} type="file" accept="application/pdf"
+        style={{ display: "none" }} onChange={up} />
       {error && <div className="error-card">{error}</div>}
     </div>
   );
