@@ -1,9 +1,19 @@
+import { useEffect, useRef } from "react";
+
 export default function Home({ go, auth }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = 0.7;
+    }
+  }, []);
+
   return (
     <div className="app-shell home-shell">
       <div className="sky-backdrop" aria-hidden="true">
         <div className="sky-day" />
-        <video className="sky-video" autoPlay muted loop playsInline src="sky-bg.mp4" />
+        <video ref={videoRef} className="sky-video" autoPlay muted loop playsInline src="sky-bg.mp4" />
       </div>
 
       <header className="nav">
