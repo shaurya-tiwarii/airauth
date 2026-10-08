@@ -14,6 +14,7 @@ export function useAirDraw(onCapture) {
   const streamRef = useRef(null);
   const pointsRef = useRef([]);
   const kinRef = useRef([]);
+  const breaksRef = useRef(new Set());  // indices where a new stroke begins (pen was lifted)
   const drawingRef = useRef(false);
   const settleTimer = useRef(null);
   const onCaptureRef = useRef(onCapture);
@@ -38,11 +39,13 @@ export function useAirDraw(onCapture) {
     const ctx = c.getContext("2d");
     ctx.clearRect(0, 0, c.width, c.height);
     const pts = pointsRef.current;
+    const breaks = breaksRef.current;
     if (pts.length >= 2) {
       ctx.beginPath();
       pts.forEach((p, i) => {
         const x = p[0] * c.width, y = p[1] * c.height;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        // Pen was lifted before this point: start a new subpath, don't connect.
+        if (i === 0 || breaks.has(i)) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
       ctx.strokeStyle = "#14243a";
       ctx.lineWidth = 5;
@@ -68,6 +71,7 @@ export function useAirDraw(onCapture) {
   const clear = () => {
     pointsRef.current = [];
     kinRef.current = [];
+    breaksRef.current = new Set();
     drawingRef.current = false;
     smoothRef.current = null;
     clearTimeout(settleTimer.current);
@@ -112,6 +116,11 @@ export function useAirDraw(onCapture) {
       if (!drawingRef.current) {
         drawingRef.current = true;
         clearTimeout(settleTimer.current);
+        // Pen went down again before the previous stroke was captured:
+        // mark a break so no straight line connects the two strokes.
+        if (pointsRef.current.length > 0) {
+          breaksRef.current.add(pointsRef.current.length);
+        }
         setStatus("Drawing...");
       }
       const p = tip;
