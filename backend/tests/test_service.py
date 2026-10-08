@@ -11,13 +11,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import auth as authmod
+import db as dbmod
 import pdfsign
 import signstore
 
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
-    monkeypatch.setattr(signstore, "DB_FILE", str(tmp_path / "t.db"))
+    monkeypatch.setattr(dbmod, "DB_FILE", str(tmp_path / "t.db"))
     monkeypatch.setattr(signstore, "STORAGE_DIR", tmp_path / "storage")
     monkeypatch.setattr(signstore, "DOCS_DIR", tmp_path / "storage" / "docs")
     monkeypatch.setattr(signstore, "SIGNED_DIR", tmp_path / "storage" / "signed")
