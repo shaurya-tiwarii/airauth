@@ -5,7 +5,7 @@ All tunables live in config.py.
 """
 import os
 import json
-import sqlite3
+import db  # shared connection layer (SQLite locally, Turso when configured)
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 import numpy as np
@@ -197,14 +197,20 @@ def dtw_barycenter_averaging(samples: List[np.ndarray],
 
 
 class SecureBiometricVault:
-    def __init__(self, db_path: str = DB_FILE):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        # Templates live in the shared database (db.connect_raw): local
+        # SQLite file for dev, Turso when TURSO_URL/TURSO_TOKEN are set.
+        # db_path is a local-dev/test override; ignored on Turso.
+        self._db_path = db_path
         self.master_key = _load_master_key()
         self.aesgcm = AESGCM(self.master_key)
         self._init_db()
 
+    def _conn(self):
+        return db.connect_raw(self._db_path)
+
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute("PRAGMA table_info(biometric_vault)")
             columns = [row[1] for row in cursor.fetchall()]
@@ -242,7 +248,7 @@ class SecureBiometricVault:
         nonce = os.urandom(12)
         ciphertext = self.aesgcm.encrypt(nonce, payload_bytes, user_id.encode('utf-8'))
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO biometric_vault (user_id, nonce, ciphertext)
@@ -262,7 +268,7 @@ class SecureBiometricVault:
         }
 
     def load_fused_template(self, user_id: str) -> Dict[str, np.ndarray]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._conn() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT nonce, ciphertext FROM biometric_vault WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()

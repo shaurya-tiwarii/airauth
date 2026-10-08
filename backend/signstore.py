@@ -1,16 +1,20 @@
 """AirAuth service layer: users, businesses, documents, signatures.
 
-SQLite-backed. Biometric templates stay in the separate encrypted vault
-(security.py); this DB holds account and document-signing records.
+Database-backed via db.py (local SQLite for dev, Turso when TURSO_URL and
+TURSO_TOKEN are set). Biometric templates stay in the separate encrypted
+vault (security.py); this DB holds account and document-signing records.
+PDF bytes live in the DB too, so documents survive Render restarts.
 """
 import secrets
-import sqlite3
 import string
 from datetime import datetime, timezone
 from pathlib import Path
 
+import db
+
 BASE_DIR = Path(__file__).resolve().parent
-DB_FILE = str(BASE_DIR / "airauth.db")
+# Legacy on-disk PDF locations (pre-Turso). Reads fall back to these;
+# all new writes go to the database.
 STORAGE_DIR = BASE_DIR / "storage"
 DOCS_DIR = STORAGE_DIR / "docs"
 SIGNED_DIR = STORAGE_DIR / "signed"
@@ -29,11 +33,9 @@ def _init_dirs():
     SIGNED_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def get_conn() -> sqlite3.Connection:
+def get_conn():
     _init_dirs()
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return db.connect()
 
 
 def init_db():
@@ -69,6 +71,7 @@ def init_db():
                 filename TEXT NOT NULL,
                 sha256 TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
+                pdf_data BLOB,
                 created_at TEXT NOT NULL
             )
         """)
@@ -82,16 +85,23 @@ def init_db():
                 doc_sha256 TEXT NOT NULL,
                 stamped_sha256 TEXT,
                 include_visible_sig INTEGER DEFAULT 1,
+                stamped_pdf_data BLOB,
                 created_at TEXT NOT NULL
             )
         """)
         # Migrations for databases created before these columns existed.
+        # Try the ALTER and ignore "duplicate column" errors: this works on
+        # both SQLite and Turso without relying on PRAGMA over HTTP.
         for table, column, ctype in (("documents", "assignee_user_id", "INTEGER"),
+                                     ("documents", "pdf_data", "BLOB"),
                                      ("signatures", "stamped_sha256", "TEXT"),
-                                     ("signatures", "method", "TEXT DEFAULT 'air'")):
-            cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
-            if column not in cols:
+                                     ("signatures", "method", "TEXT DEFAULT 'air'"),
+                                     ("signatures", "stamped_pdf_data", "BLOB")):
+            try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
+            except Exception as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
         c.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,7 +119,7 @@ def new_invite_code() -> str:
                             for _ in range(6))
 
 
-def new_verify_code(conn: sqlite3.Connection) -> str:
+def new_verify_code(conn) -> str:
     while True:
         code = "AA-" + "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
         row = conn.execute("SELECT 1 FROM signatures WHERE code = ?", (code,)).fetchone()
@@ -286,11 +296,47 @@ def mark_signed(did: int):
 
 
 def doc_path(did: int) -> Path:
+    """Legacy on-disk location. Reads fall back here; writes go to the DB."""
     return DOCS_DIR / f"{did}.pdf"
 
 
 def signed_path(code: str) -> Path:
+    """Legacy on-disk location. Reads fall back here; writes go to the DB."""
     return SIGNED_DIR / f"{code}.pdf"
+
+
+def save_doc_pdf(did: int, data: bytes):
+    with get_conn() as conn:
+        conn.execute("UPDATE documents SET pdf_data = ? WHERE id = ?", (data, did))
+        conn.commit()
+
+
+def load_doc_pdf(did: int) -> bytes | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT pdf_data FROM documents WHERE id = ?",
+                           (did,)).fetchone()
+    if row and row["pdf_data"]:
+        return bytes(row["pdf_data"])
+    # Fallback for PDFs saved before the database migration.
+    path = doc_path(did)
+    return path.read_bytes() if path.exists() else None
+
+
+def save_signed_pdf(code: str, data: bytes):
+    with get_conn() as conn:
+        conn.execute("UPDATE signatures SET stamped_pdf_data = ? WHERE code = ?",
+                     (data, code))
+        conn.commit()
+
+
+def load_signed_pdf(code: str) -> bytes | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT stamped_pdf_data FROM signatures WHERE code = ?",
+                           (code,)).fetchone()
+    if row and row["stamped_pdf_data"]:
+        return bytes(row["stamped_pdf_data"])
+    path = signed_path(code)
+    return path.read_bytes() if path.exists() else None
 
 
 def delete_document(did: int) -> dict:

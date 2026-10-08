@@ -6,7 +6,7 @@ from typing import List, Tuple
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, EmailStr
 
 current_dir = Path(__file__).resolve().parent
@@ -285,7 +285,7 @@ async def upload_doc(file: UploadFile = File(...),
     digest = _sha256(data)
     doc = signstore.create_document(user["id"], user["business_id"],
                                     file.filename or "document.pdf", digest)
-    signstore.doc_path(doc["id"]).write_bytes(data)
+    signstore.save_doc_pdf(doc["id"], data)
     _audit(user["id"], "document.upload",
            f"doc_id={doc['id']} filename={doc['filename']}")
     return {"id": doc["id"], "filename": doc["filename"], "sha256": digest,
@@ -302,10 +302,12 @@ def download_doc(doc_id: int, user: dict = Depends(authmod.get_current_user)):
         raise HTTPException(status_code=404, detail="Document not found.")
     if not _can_access_doc(user, doc):
         raise HTTPException(status_code=403, detail="Not your document.")
-    path = signstore.doc_path(doc_id)
-    if not path.exists():
+    data = signstore.load_doc_pdf(doc_id)
+    if not data:
         raise HTTPException(status_code=404, detail="File missing.")
-    return FileResponse(str(path), media_type="application/pdf", filename=doc["filename"])
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{doc["filename"]}"'})
 
 def _can_access_doc(user: dict, doc: dict) -> bool:
     if user["role"] == "platform_admin":
@@ -412,7 +414,9 @@ def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user
     # method == "draw": the signer is already authenticated by login;
     # no biometric claim is made. Document integrity guarantees still hold.
 
-    original = signstore.doc_path(doc["id"]).read_bytes()
+    original = signstore.load_doc_pdf(doc["id"])
+    if not original:
+        raise HTTPException(status_code=404, detail="Original file missing.")
     digest = _sha256(original)
     signed_at = pdfsign.utcnow_iso()
     with signstore.get_conn() as conn:
@@ -425,7 +429,7 @@ def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user
         signed_at=signed_at, doc_hash=digest,
         gesture_points=payload.points if payload.include_visible_signature else None,
     )
-    signstore.signed_path(code).write_bytes(stamped)
+    signstore.save_signed_pdf(code, stamped)
     stamped_digest = _sha256(stamped)
     signstore.create_signature(code, doc["id"], user["id"], user["business_id"],
                                digest, payload.include_visible_signature,
@@ -444,11 +448,12 @@ def download_signed(code: str, user: dict = Depends(authmod.get_current_user)):
     doc = signstore.get_document(sig["document_id"])
     if not _can_access_doc(user, doc):
         raise HTTPException(status_code=403, detail="Not your document.")
-    path = signstore.signed_path(code)
-    if not path.exists():
+    data = signstore.load_signed_pdf(code)
+    if not data:
         raise HTTPException(status_code=404, detail="Signed file missing.")
-    return FileResponse(str(path), media_type="application/pdf",
-                        filename=f"signed-{code}.pdf")
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="signed-{code}.pdf"'})
 
 @app.get("/api/v1/sign/mine")
 def my_signatures(user: dict = Depends(authmod.get_current_user)):
