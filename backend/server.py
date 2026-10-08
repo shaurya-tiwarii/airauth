@@ -429,11 +429,12 @@ def sign_document(payload: SignIn, user: dict = Depends(authmod.get_current_user
         signed_at=signed_at, doc_hash=digest,
         gesture_points=payload.points if payload.include_visible_signature else None,
     )
-    signstore.save_signed_pdf(code, stamped)
     stamped_digest = _sha256(stamped)
     signstore.create_signature(code, doc["id"], user["id"], user["business_id"],
                                digest, payload.include_visible_signature,
                                stamped_sha256=stamped_digest, method=method)
+    # The row must exist before we can UPDATE its BLOB.
+    signstore.save_signed_pdf(code, stamped)
     signstore.mark_signed(doc["id"])
     _audit(user["id"], "document.sign",
            f"doc_id={doc['id']} code={code} method={method}")
