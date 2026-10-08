@@ -255,21 +255,25 @@ def get_document(did: int) -> dict:
 
 
 def list_documents_for(user: dict) -> list:
+    # Never SELECT * here: documents.pdf_data is a BLOB that must not leak
+    # into JSON API responses.
+    cols = ("id, filename, sha256, owner_user_id, business_id, assignee_user_id,"
+            " status, created_at")
     with get_conn() as conn:
         if user["role"] == "platform_admin":
-            rows = conn.execute("SELECT * FROM documents ORDER BY id DESC").fetchall()
+            rows = conn.execute(f"SELECT {cols} FROM documents ORDER BY id DESC").fetchall()
         elif user["role"] == "employer_admin" and user["business_id"]:
             rows = conn.execute(
-                "SELECT * FROM documents WHERE business_id = ? OR owner_user_id = ?"
+                f"SELECT {cols} FROM documents WHERE business_id = ? OR owner_user_id = ?"
                 " ORDER BY id DESC", (user["business_id"], user["id"])).fetchall()
         elif user["role"] == "employee" and user["business_id"]:
             # Employees see only their own uploads and documents assigned to them.
             rows = conn.execute(
-                "SELECT * FROM documents WHERE owner_user_id = ? OR assignee_user_id = ?"
+                f"SELECT {cols} FROM documents WHERE owner_user_id = ? OR assignee_user_id = ?"
                 " ORDER BY id DESC", (user["id"], user["id"])).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM documents WHERE owner_user_id = ? ORDER BY id DESC",
+                f"SELECT {cols} FROM documents WHERE owner_user_id = ? ORDER BY id DESC",
                 (user["id"],)).fetchall()
         return [row_to_dict(r) for r in rows]
 
@@ -410,16 +414,20 @@ def get_signature_by_code(code: str) -> dict:
 
 
 def list_signatures_for(user: dict) -> list:
+    # Never SELECT * here: signatures.stamped_pdf_data is a BLOB that must
+    # not leak into JSON API responses.
+    cols = ("id, code, document_id, signer_user_id, business_id, doc_sha256,"
+            " include_visible_sig, stamped_sha256, method, created_at")
     with get_conn() as conn:
         if user["role"] == "platform_admin":
-            rows = conn.execute("SELECT * FROM signatures ORDER BY id DESC").fetchall()
+            rows = conn.execute(f"SELECT {cols} FROM signatures ORDER BY id DESC").fetchall()
         elif user["role"] == "employer_admin" and user["business_id"]:
             rows = conn.execute(
-                "SELECT * FROM signatures WHERE business_id = ? OR signer_user_id = ?"
+                f"SELECT {cols} FROM signatures WHERE business_id = ? OR signer_user_id = ?"
                 " ORDER BY id DESC", (user["business_id"], user["id"])).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM signatures WHERE signer_user_id = ? ORDER BY id DESC",
+                f"SELECT {cols} FROM signatures WHERE signer_user_id = ? ORDER BY id DESC",
                 (user["id"],)).fetchall()
         out = []
         for r in rows:
