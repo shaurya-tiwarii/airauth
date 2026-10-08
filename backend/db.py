@@ -75,6 +75,10 @@ class _DictCursor:
     def fetchall(self):
         return self._convert(self._cursor.fetchall())
 
+    def __iter__(self):
+        # Iteration must also yield dicts, not raw backend rows.
+        return iter(self.fetchall())
+
     def __getattr__(self, name):
         return getattr(self._cursor, name)
 
