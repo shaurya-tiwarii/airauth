@@ -13,6 +13,7 @@ function DrawPad({ onStroke }) {
   const ref = useRef(null);
   const drawing = useRef(false);
   const pts = useRef([]);
+  const breaks = useRef(new Set());
   const [count, setCount] = useState(0);
 
   const paint = () => {
@@ -20,11 +21,13 @@ function DrawPad({ onStroke }) {
     if (!c) return;
     const ctx = c.getContext("2d");
     ctx.clearRect(0, 0, c.width, c.height);
-    if (pts.current.length < 2) return;
+    const p = pts.current;
+    if (p.length < 2) return;
     ctx.beginPath();
-    pts.current.forEach((p, i) => {
-      const x = p[0] * c.width, y = p[1] * c.height;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    p.forEach((pt, i) => {
+      const x = pt[0] * c.width, y = pt[1] * c.height;
+      if (i === 0 || breaks.current.has(i)) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     });
     ctx.strokeStyle = "#14243a";
     ctx.lineWidth = 5;
@@ -43,6 +46,7 @@ function DrawPad({ onStroke }) {
 
   const clear = () => {
     pts.current = [];
+    breaks.current = new Set();
     drawing.current = false;
     setCount(0);
     onStroke(null);
@@ -62,6 +66,7 @@ function DrawPad({ onStroke }) {
             e.currentTarget.setPointerCapture(e.pointerId);
             drawing.current = true;
             pts.current = [pos(e)];
+            breaks.current = new Set();
             paint();
           }}
           onPointerMove={(e) => {

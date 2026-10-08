@@ -129,7 +129,19 @@ function ProfileCard({ auth, go, refresh }) {
         ? <p className="ok-line">Signature profile enrolled. One air verification signs any document.</p>
         : <><p className="muted">No air signature enrolled yet. You can still sign with the Draw tab; enroll here to unlock air signing.</p>
             <button className="dark-auth-button" onClick={() => go("enroll")}>Enroll my air signature</button></>}
-      <ChangePassword />
+    </section>
+  );
+}
+
+function SecurityCard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="dash-card">
+      <button type="button" className="security-toggle" onClick={() => setOpen((o) => !o)}>
+        <span><b>Security</b> <small className="muted">Change password</small></span>
+        <span>{open ? "−" : "+"}</span>
+      </button>
+      {open && <ChangePassword />}
     </section>
   );
 }
@@ -158,6 +170,7 @@ function UserDash({ auth, go, refresh }) {
         <h3>Signed by me</h3>
         <SigTable sigs={sigs} />
       </section>
+      <SecurityCard />
     </>
   );
 }
@@ -265,6 +278,7 @@ function EmployerDash({ auth, go, refresh }) {
         <h3>Signature log</h3>
         <SigTable sigs={sigs} />
       </section>
+      <SecurityCard />
     </>
   );
 }

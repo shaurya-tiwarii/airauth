@@ -40,13 +40,13 @@ export default function VerifyPortal() {
           accepted.
         </p>
         <form onSubmit={lookup} className="row-form">
-          <input value={code} onChange={(e) => setCode(e.target.value)}
-            placeholder="AA-XXXXXXXX" className="code-input" />
-          <button className="dark-auth-button" disabled={busy || !code.trim()}>
-            {busy ? "..." : "Verify"}
+          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="AA-XXXXXXXX" className="code-input" autoComplete="off" />
+          <button type="submit" className="dark-auth-button" disabled={busy || !code.trim()}>
+            {busy ? "Checking..." : "Verify"}
           </button>
         </form>
-        {error && <div className="error-card">{error}</div>}
+        {error && <div className="error-card">⚠ {error}</div>}
         {result && (
           <div className="verify-result">
             <div className="verify-ok">Verified by AirAuth</div>
